@@ -4,7 +4,7 @@ name: Free4Game 自动续期
 on:
   schedule:
     # 使用 Cron 表达式配置为每小时的第 0 分钟执行一次 (例如 1:00, 2:00, 3:00...)
-    - cron: '0 * * * *'
+    - cron: '*/30 * * * *'
   # 保留手动触发按钮，方便随时测试
   workflow_dispatch: 
 
