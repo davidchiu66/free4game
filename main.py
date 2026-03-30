@@ -106,7 +106,9 @@ def run_automation():
             # ---------------------------------------------------------
             print("正在向下滑动页面以捕获底部信息...")
             # 执行 JS 代码，将窗口滚动到文档真正的最底部
-            page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+            # page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+            page.keyboard.press("End")
+            
             # 稍微停顿 5 秒，给底部的数据或图表一点时间来渲染
             time.sleep(5) 
             
