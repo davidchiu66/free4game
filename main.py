@@ -71,7 +71,7 @@ def run_automation():
         browser = p.chromium.launch(headless=True)
         context = browser.new_context(
             user_agent=CUSTOM_USER_AGENT,
-            viewport={'width': 1280, 'height': 800} # 设置一个稍微大点的视口，让截图更好看
+            viewport={'width': 1280, 'height': 800} # 设置视口大小
         )
 
         # 注入 Cookie
@@ -101,10 +101,19 @@ def run_automation():
             page.wait_for_load_state('networkidle')
             print("页面刷新完成！")
             
-            # 【新增】截取成功后的全屏快照
+            # ---------------------------------------------------------
+            # 【新增逻辑】滑动到页面底部
+            # ---------------------------------------------------------
+            print("正在向下滑动页面以捕获底部信息...")
+            # 执行 JS 代码，将窗口滚动到文档真正的最底部
+            page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+            # 稍微停顿 5 秒，给底部的数据或图表一点时间来渲染
+            time.sleep(5) 
+            
+            # 截取全屏快照 (现在包含了渲染好的底部内容)
             page.screenshot(path=screenshot_path, full_page=True)
             
-            # 【新增】构建精美的 HTML 成功消息
+            # 构建精美的 HTML 成功消息
             success_msg = (
                 f"🎁 <b>Game4Free 续期报告</b>\n\n"
                 f"📊 共 1 个账号\n"
@@ -118,17 +127,18 @@ def run_automation():
             send_tg_report(success_msg, screenshot_path)
 
         except Exception as e:
-            error_details = str(e).split('\n')[0] # 只取第一行错误信息，避免太长
+            error_details = str(e).split('\n')[0] 
             print(f"❌ 自动化任务执行失败: {error_details}")
             
-            # 如果出错，尝试截图错误现场
             error_screenshot = "error.png"
             try:
-                page.screenshot(path=error_screenshot)
+                # 报错时也尝试滑到底部截图，方便排查
+                page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+                time.sleep(1)
+                page.screenshot(path=error_screenshot, full_page=True)
             except:
                 error_screenshot = None
 
-            # 构建精美的 HTML 失败消息
             fail_msg = (
                 f"🎁 <b>Game4Free 续期报告</b>\n\n"
                 f"📊 共 1 个账号\n"
