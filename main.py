@@ -102,17 +102,34 @@ def run_automation():
             print("页面刷新完成！")
             
             # ---------------------------------------------------------
-            # 【新增逻辑】滑动到页面底部
+            # 【优化逻辑】安全地摆脱控制台焦点，精准定位底部图表
             # ---------------------------------------------------------
-            print("正在向下滑动页面以捕获底部信息...")
-            # 执行 JS 代码，将窗口滚动到文档真正的最底部
-            # page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-            page.keyboard.press("End")
+            print("尝试安全地转移焦点，并定位底部图表区域...")
             
-            # 稍微停顿 5 秒，给底部的数据或图表一点时间来渲染
-            time.sleep(5) 
+            # 1. 精准且安全地点击 "Console" 标题，让终端输入框失去焦点
+            try:
+                # 根据你提供的 <h1>Console</h1> 元素，使用角色定位器找到它
+                console_header = page.get_by_role("heading", name="Console", exact=True)
+                console_header.click(timeout=5000)
+                print("✅ 已点击 Console 标题，成功安全移除终端焦点。")
+            except Exception as e:
+                print(f"⚠️ 点击 Console 标题时遇到小问题: {e}")
+                # 备用方案：如果由于某种原因没找到标题，点一下页面右侧绝对空白的区域
+                page.mouse.click(1270, 400)
             
-            # 截取全屏快照 (现在包含了渲染好的底部内容)
+            # 2. 定位底部图表的标志性文本 "CPU Load"
+            try:
+                cpu_label = page.get_by_text("CPU Load", exact=False)
+                cpu_label.scroll_into_view_if_needed(timeout=5000)
+                print("✅ 成功滚动到底部图表区域！")
+            except Exception as e:
+                print(f"⚠️ 滚动元素时遇到问题 (可能页面结构有变): {e}")
+                page.mouse.wheel(delta_x=0, delta_y=2000)
+
+            # 稍微停顿 2 秒，给图表的 Canvas 动画和数据加载留出渲染时间
+            time.sleep(2) 
+            
+            # 截取全屏快照 (此时页面已经被拉到了底部，且没有任何干扰)
             page.screenshot(path=screenshot_path, full_page=True)
             
             # 构建精美的 HTML 成功消息
@@ -134,8 +151,9 @@ def run_automation():
             
             error_screenshot = "error.png"
             try:
-                # 报错时也尝试滑到底部截图，方便排查
-                page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+                # 报错时也使用安全点击并尝试截图
+                page.get_by_role("heading", name="Console", exact=True).click(timeout=3000)
+                page.mouse.wheel(delta_x=0, delta_y=2000)
                 time.sleep(1)
                 page.screenshot(path=error_screenshot, full_page=True)
             except:
