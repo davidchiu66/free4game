@@ -64,14 +64,13 @@ def send_tg_report(caption_html: str, photo_path: str = None):
         print(f"❌ TG推送失败: {e}")
 
 def run_automation():
-    # 用于保存截图的路径
     screenshot_path = "result.png"
     
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         context = browser.new_context(
             user_agent=CUSTOM_USER_AGENT,
-            viewport={'width': 1280, 'height': 800} # 设置视口大小
+            viewport={'width': 1280, 'height': 800}
         )
 
         # 注入 Cookie
@@ -88,51 +87,69 @@ def run_automation():
             page.goto(target_url)
             print(f"打开服务器页面: {target_url}")
 
-            print("查找并点击续期按钮...")
-            renew_button = page.get_by_role("button", name="Add 90 Minutes", exact=True)
-            renew_button.wait_for(state="visible", timeout=15000)
-            renew_button.click()
-            
-            print("正在等待 45 秒...")
-            time.sleep(45) 
-            
-            print("正在刷新页面以确认状态...")
-            page.reload()
-            page.wait_for_load_state('networkidle')
-            print("页面刷新完成！")
-            
             # ---------------------------------------------------------
-            # 【优化逻辑】安全地摆脱控制台焦点，精准定位底部图表
+            # 【全新逻辑】引入最多 3 次的重试验证机制
             # ---------------------------------------------------------
-            print("尝试安全地转移焦点，并定位底部图表区域...")
+            max_retries = 3
+            is_success = False
+
+            for attempt in range(1, max_retries + 1):
+                print(f"\n--- 开始第 {attempt} 次续期检查 ---")
+                
+                # 查找续期按钮
+                renew_button = page.get_by_role("button", name="Add 90 Minutes", exact=True)
+                
+                # 给页面 5 秒钟时间确认按钮是否真的存在（避免因为页面刚加载完而误判）
+                try:
+                    renew_button.wait_for(state="visible", timeout=5000)
+                except:
+                    pass # 如果 5 秒后没找到，什么都不做，继续往下走
+                
+                # 校验状态：按钮是否还在？
+                if not renew_button.is_visible():
+                    print("✅ 确认「Add 90 Minutes」按钮已消失，续期成功生效！")
+                    is_success = True
+                    break # 成功了！直接跳出重试循环，去执行后面的截图操作
+                
+                # 如果按钮还在，说明需要续期（或者上一次续期没成功）
+                print(f"发现续期按钮，正在执行点击 (当前尝试: {attempt}/{max_retries})...")
+                renew_button.click()
+                
+                print("正在等待 45 秒 (等待广告/后台处理)...")
+                time.sleep(45) 
+                
+                print("正在刷新页面以确认状态...")
+                page.reload()
+                page.wait_for_load_state('networkidle')
+                # 刷新完成后，循环会回到开头，再次检查按钮是否存在
+
+            # 循环结束后，检查最终状态
+            if not is_success:
+                # 如果执行了 3 次还没成功，抛出异常，触发失败通知
+                raise Exception(f"已重试 {max_retries} 次，但续期按钮依然存在，可能是广告加载失败或被拦截。")
+
+            # ---------------------------------------------------------
+            # 以下为成功后的滑动截屏与通知逻辑 (只有 is_success 为 True 才会执行到这里)
+            # ---------------------------------------------------------
+            print("\n尝试安全地转移焦点，并定位底部图表区域进行截图...")
             
-            # 1. 精准且安全地点击 "Console" 标题，让终端输入框失去焦点
             try:
-                # 根据你提供的 <h1>Console</h1> 元素，使用角色定位器找到它
                 console_header = page.get_by_role("heading", name="Console", exact=True)
                 console_header.click(timeout=5000)
                 print("✅ 已点击 Console 标题，成功安全移除终端焦点。")
             except Exception as e:
-                print(f"⚠️ 点击 Console 标题时遇到小问题: {e}")
-                # 备用方案：如果由于某种原因没找到标题，点一下页面右侧绝对空白的区域
                 page.mouse.click(1270, 400)
             
-            # 2. 定位底部图表的标志性文本 "CPU Load"
             try:
                 cpu_label = page.get_by_text("CPU Load", exact=False)
                 cpu_label.scroll_into_view_if_needed(timeout=5000)
                 print("✅ 成功滚动到底部图表区域！")
             except Exception as e:
-                print(f"⚠️ 滚动元素时遇到问题 (可能页面结构有变): {e}")
                 page.mouse.wheel(delta_x=0, delta_y=2000)
 
-            # 稍微停顿 2 秒，给图表的 Canvas 动画和数据加载留出渲染时间
             time.sleep(2) 
-            
-            # 截取全屏快照 (此时页面已经被拉到了底部，且没有任何干扰)
             page.screenshot(path=screenshot_path, full_page=True)
             
-            # 构建精美的 HTML 成功消息
             success_msg = (
                 f"🎁 <b>Game4Free 续期报告</b>\n\n"
                 f"📊 共 1 个账号\n"
@@ -147,11 +164,10 @@ def run_automation():
 
         except Exception as e:
             error_details = str(e).split('\n')[0] 
-            print(f"❌ 自动化任务执行失败: {error_details}")
+            print(f"\n❌ 自动化任务执行失败: {error_details}")
             
             error_screenshot = "error.png"
             try:
-                # 报错时也使用安全点击并尝试截图
                 page.get_by_role("heading", name="Console", exact=True).click(timeout=3000)
                 page.mouse.wheel(delta_x=0, delta_y=2000)
                 time.sleep(1)
