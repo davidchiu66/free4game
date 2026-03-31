@@ -73,7 +73,6 @@ def run_automation():
             viewport={'width': 1280, 'height': 800}
         )
 
-        # 注入 Cookie
         if USER_COOKIES:
             formatted_cookies = parse_raw_cookies(USER_COOKIES)
             if formatted_cookies:
@@ -88,49 +87,49 @@ def run_automation():
             print(f"打开服务器页面: {target_url}")
 
             # ---------------------------------------------------------
-            # 【全新逻辑】引入最多 3 次的重试验证机制
+            # 【新增调试逻辑】等待页面加载，并打印完整的 HTML 源代码
             # ---------------------------------------------------------
+            print("等待页面网络请求完成，准备获取 HTML...")
+            # 等待网络空闲，确保页面完全渲染
+            page.wait_for_load_state('networkidle', timeout=15000) 
+            
+            print("\n================ 页面 HTML 源代码开始 ================")
+            # 获取并打印当前页面的全部 HTML 代码
+            print(page.content())
+            print("================ 页面 HTML 源代码结束 ================\n")
+            # ---------------------------------------------------------
+
             max_retries = 3
             is_success = False
 
             for attempt in range(1, max_retries + 1):
                 print(f"\n--- 开始第 {attempt} 次续期检查 ---")
                 
-                # 查找续期按钮
                 renew_button = page.get_by_role("button", name="Add 90 Minutes", exact=True)
                 
-                # 给页面 5 秒钟时间确认按钮是否真的存在（避免因为页面刚加载完而误判）
                 try:
                     renew_button.wait_for(state="visible", timeout=5000)
                 except:
-                    pass # 如果 5 秒后没找到，什么都不做，继续往下走
+                    pass 
                 
-                # 校验状态：按钮是否还在？
                 if not renew_button.is_visible():
-                    print("✅ 确认「Add 90 Minutes」按钮已消失，续期成功生效！")
+                    print("✅ 确认「Add 90 Minutes」按钮不存在 (可能已续期)。")
                     is_success = True
-                    break # 成功了！直接跳出重试循环，去执行后面的截图操作
+                    break 
                 
-                # 如果按钮还在，说明需要续期（或者上一次续期没成功）
                 print(f"发现续期按钮，正在执行点击 (当前尝试: {attempt}/{max_retries})...")
                 renew_button.click()
                 
-                print("正在等待 45 秒 (等待广告/后台处理)...")
+                print("正在等待 45 秒...")
                 time.sleep(45) 
                 
                 print("正在刷新页面以确认状态...")
                 page.reload()
                 page.wait_for_load_state('networkidle')
-                # 刷新完成后，循环会回到开头，再次检查按钮是否存在
 
-            # 循环结束后，检查最终状态
             if not is_success:
-                # 如果执行了 3 次还没成功，抛出异常，触发失败通知
-                raise Exception(f"已重试 {max_retries} 次，但续期按钮依然存在，可能是广告加载失败或被拦截。")
+                raise Exception(f"已重试 {max_retries} 次，但续期按钮依然存在。")
 
-            # ---------------------------------------------------------
-            # 以下为成功后的滑动截屏与通知逻辑 (只有 is_success 为 True 才会执行到这里)
-            # ---------------------------------------------------------
             print("\n尝试安全地转移焦点，并定位底部图表区域进行截图...")
             
             try:
