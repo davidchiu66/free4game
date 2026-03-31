@@ -28,8 +28,9 @@ jobs:
       - name: 安装依赖包
         run: |
           python -m pip install --upgrade pip
-          pip install playwright requests
-          playwright install chromium --with-deps
+          pip install playwright requests playwright-stealth
+          # 【关键修改】安装真实的 chrome 浏览器，而不是精简版 chromium
+          playwright install chrome --with-deps
 
       # 4. 运行主脚本，并从 Secrets 中读取配置注入为环境变量
       - name: 执行续期脚本
