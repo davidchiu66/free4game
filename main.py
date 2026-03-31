@@ -86,18 +86,10 @@ def run_automation():
             page.goto(target_url)
             print(f"打开服务器页面: {target_url}")
 
-            # ---------------------------------------------------------
-            # 【新增调试逻辑】等待页面加载，并打印完整的 HTML 源代码
-            # ---------------------------------------------------------
-            print("等待页面网络请求完成，准备获取 HTML...")
-            # 等待网络空闲，确保页面完全渲染
-            page.wait_for_load_state('networkidle', timeout=15000) 
-            
-            print("\n================ 页面 HTML 源代码开始 ================")
-            # 获取并打印当前页面的全部 HTML 代码
-            print(page.content())
-            print("================ 页面 HTML 源代码结束 ================\n")
-            # ---------------------------------------------------------
+            # ==========================================
+            # 删除了 wait_for_load_state('networkidle') 和打印 HTML 的调试代码
+            # 让程序直接进入循环寻找按钮
+            # ==========================================
 
             max_retries = 3
             is_success = False
@@ -105,15 +97,17 @@ def run_automation():
             for attempt in range(1, max_retries + 1):
                 print(f"\n--- 开始第 {attempt} 次续期检查 ---")
                 
-                renew_button = page.get_by_role("button", name="Add 90 Minutes", exact=True)
+                # 寻找按钮
+                renew_button = page.get_by_role("button", name="ADD 90 MINUTES", exact=True)
                 
                 try:
-                    renew_button.wait_for(state="visible", timeout=5000)
+                    # 等待最多 10 秒让按钮出现 (忽略后台的网络波动)
+                    renew_button.wait_for(state="visible", timeout=10000)
                 except:
                     pass 
                 
                 if not renew_button.is_visible():
-                    print("✅ 确认「Add 90 Minutes」按钮不存在 (可能已续期)。")
+                    print("✅ 确认「ADD 90 MINUTES」按钮不存在 (可能已续期)。")
                     is_success = True
                     break 
                 
@@ -125,7 +119,8 @@ def run_automation():
                 
                 print("正在刷新页面以确认状态...")
                 page.reload()
-                page.wait_for_load_state('networkidle')
+                # 刷新后，我们只等待页面的 DOM 结构加载完成，而不是死等网络绝对安静
+                page.wait_for_load_state('domcontentloaded')
 
             if not is_success:
                 raise Exception(f"已重试 {max_retries} 次，但续期按钮依然存在。")
@@ -135,14 +130,12 @@ def run_automation():
             try:
                 console_header = page.get_by_role("heading", name="Console", exact=True)
                 console_header.click(timeout=5000)
-                print("✅ 已点击 Console 标题，成功安全移除终端焦点。")
             except Exception as e:
                 page.mouse.click(1270, 400)
             
             try:
                 cpu_label = page.get_by_text("CPU Load", exact=False)
                 cpu_label.scroll_into_view_if_needed(timeout=5000)
-                print("✅ 成功滚动到底部图表区域！")
             except Exception as e:
                 page.mouse.wheel(delta_x=0, delta_y=2000)
 
