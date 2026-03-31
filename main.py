@@ -73,13 +73,10 @@ def run_automation():
     screenshot_path = "result.png"
     
     with sync_playwright() as p:
-        # ---------------------------------------------------------
-        # 【关键升级 1】使用真实的 Chrome 浏览器，并添加底层反检测参数
-        # ---------------------------------------------------------
         browser = p.chromium.launch(
             headless=False, 
-            channel="chrome", # 指定使用正版 Google Chrome (具备视频解码能力)
-            args=["--disable-blink-features=AutomationControlled"] # 隐藏自动化特征
+            channel="chrome", 
+            args=["--disable-blink-features=AutomationControlled"] 
         )
         context = browser.new_context(
             user_agent=CUSTOM_USER_AGENT,
@@ -92,10 +89,6 @@ def run_automation():
                 context.add_cookies(formatted_cookies)
 
         page = context.new_page()
-        
-        # ---------------------------------------------------------
-        # 【关键升级 2】给当前页面注入 Stealth 伪装脚本
-        # ---------------------------------------------------------
         stealth_sync(page)
         
         masked_id = mask_string(SERVER_ID)
@@ -128,24 +121,43 @@ def run_automation():
                     if fallback_button.is_visible():
                         renew_button = fallback_button
                     else:
-                        print("✅ 确认续期按钮不存在 (可能已续期或未加载出广告)。")
+                        print("✅ 确认续期按钮不存在 (已成功续期)。")
                         is_success = True
                         break 
                 
                 print(f"发现续期按钮，正在执行点击 (当前尝试: {attempt}/{max_retries})...")
-                # 【优化】恢复正常的点击方式，让 Playwright 自行处理可见性和遮挡问题
                 renew_button.click()
                 
-                # 【优化】将等待时间延长到 60 秒，以防某些视频广告较长
-                print("正在等待 60 秒 (让视频广告有充足的时间播完)...")
-                time.sleep(60) 
+                # 【关键修改 1】延长等待时间到 90 秒，给视频广告充分的时间
+                print("正在等待 90 秒 (让视频广告有充足的时间播完)...")
+                time.sleep(90) 
                 
                 print("正在刷新页面以确认状态...")
                 page.reload()
                 page.wait_for_load_state('domcontentloaded')
+                
+                # 【新增防御】刷新后额外等待 5 秒，防止前端框架还没把页面画出来导致白屏
+                print("等待前端渲染完成...")
+                time.sleep(5)
 
             if not is_success:
-                raise Exception(f"已重试 {max_retries} 次，但续期按钮依然存在。可能是广告播放失败或被拦截。")
+                raise Exception(f"已重试 {max_retries} 次，但续期按钮依然存在。可能是广告播放失败。")
+
+            # ---------------------------------------------------------
+            # 【新增逻辑】获取剩余时长
+            # ---------------------------------------------------------
+            remaining_time = "未知"
+            try:
+                print("正在提取服务器剩余时长...")
+                # 定位包含 "suspended" 的 p 标签，然后获取它内部 strong 标签的文本
+                time_element = page.locator("p:has-text('suspended') strong")
+                if time_element.is_visible(timeout=5000):
+                    remaining_time = time_element.inner_text().strip()
+                    print(f"✅ 成功获取剩余时长: {remaining_time}")
+                else:
+                    print("⚠️ 未找到包含时间的 strong 标签。")
+            except Exception as e:
+                print(f"⚠️ 提取时长时发生错误: {e}")
 
             print("\n尝试安全地转移焦点，并定位底部图表区域进行截图...")
             
@@ -161,9 +173,11 @@ def run_automation():
             except Exception as e:
                 page.mouse.wheel(delta_x=0, delta_y=2000)
 
-            time.sleep(2) 
+            # 截图前最后等待 3 秒，确保图表和滚动就绪
+            time.sleep(3) 
             page.screenshot(path=screenshot_path, full_page=True)
             
+            # 【关键修改 2】将获取到的剩余时间添加到成功通知中
             success_msg = (
                 f"🎁 <b>Game4Free 续期报告</b>\n\n"
                 f"📊 共 1 个账号\n"
@@ -172,6 +186,7 @@ def run_automation():
                 f"✅ <b>Game4Free 机器</b>\n"
                 f"🖥 服务器: <code>{masked_id}</code>\n"
                 f"⏳ 状态: 续期成功 (+90分钟)\n"
+                f"⏱ 剩余: <b>{remaining_time}</b>\n"
                 f"🔑 Cookie: 正常"
             )
             send_tg_report(success_msg, screenshot_path)
@@ -184,7 +199,7 @@ def run_automation():
             try:
                 page.get_by_role("heading", name="Console", exact=True).click(timeout=3000)
                 page.mouse.wheel(delta_x=0, delta_y=2000)
-                time.sleep(1)
+                time.sleep(2)
                 page.screenshot(path=error_screenshot, full_page=True)
             except:
                 error_screenshot = None
