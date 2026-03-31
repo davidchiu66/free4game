@@ -1,6 +1,8 @@
 import os
 import time
 import requests
+import json
+import re  # 【新增】导入正则表达式模块
 from playwright.sync_api import sync_playwright
 
 # 1. 从环境变量获取配置
@@ -86,40 +88,50 @@ def run_automation():
             page.goto(target_url)
             print(f"打开服务器页面: {target_url}")
 
-            # ==========================================
-            # 删除了 wait_for_load_state('networkidle') 和打印 HTML 的调试代码
-            # 让程序直接进入循环寻找按钮
-            # ==========================================
-
             max_retries = 3
             is_success = False
 
             for attempt in range(1, max_retries + 1):
                 print(f"\n--- 开始第 {attempt} 次续期检查 ---")
                 
-                # 寻找按钮
-                renew_button = page.get_by_role("button", name="ADD 90 MINUTES", exact=True)
+                # ---------------------------------------------------------
+                # 【关键优化】使用正则模糊匹配，忽略大小写，并且只要包含 90 Minutes 即可
+                # ---------------------------------------------------------
+                print("正在寻找续期按钮...")
+                # 策略 1: 使用正则表达式忽略大小写匹配
+                renew_button = page.get_by_role(
+                    "button", 
+                    name=re.compile(r"add 90 minutes", re.IGNORECASE)
+                )
                 
                 try:
-                    # 等待最多 10 秒让按钮出现 (忽略后台的网络波动)
-                    renew_button.wait_for(state="visible", timeout=10000)
-                except:
-                    pass 
+                    # 等待最多 15 秒让按钮出现
+                    renew_button.wait_for(state="visible", timeout=15000)
+                except Exception as wait_err:
+                    # 【关键优化】把错误打印出来，而不是默默 pass
+                    print(f"等待按钮超时或出错，详细信息: {str(wait_err).split('Call log:')[0]}")
                 
+                # 如果定位到了多个匹配的按钮，或者依然没找到
                 if not renew_button.is_visible():
-                    print("✅ 确认「ADD 90 MINUTES」按钮不存在 (可能已续期)。")
-                    is_success = True
-                    break 
+                    # 尝试备用定位策略：查找任何包含 "90" 和 "Minutes" 的按钮
+                    print("尝试备用定位策略...")
+                    fallback_button = page.locator("button:has-text('90')").filter(has_text=re.compile(r"minutes", re.IGNORECASE)).first
+                    if fallback_button.is_visible():
+                        renew_button = fallback_button
+                    else:
+                        print("✅ 确认续期按钮不存在 (可能已续期或未加载出广告)。")
+                        is_success = True
+                        break 
                 
                 print(f"发现续期按钮，正在执行点击 (当前尝试: {attempt}/{max_retries})...")
-                renew_button.click()
+                # 强制点击，以防被其他透明元素遮挡
+                renew_button.click(force=True)
                 
                 print("正在等待 45 秒...")
                 time.sleep(45) 
                 
                 print("正在刷新页面以确认状态...")
                 page.reload()
-                # 刷新后，我们只等待页面的 DOM 结构加载完成，而不是死等网络绝对安静
                 page.wait_for_load_state('domcontentloaded')
 
             if not is_success:
@@ -181,6 +193,9 @@ def run_automation():
             
         finally:
             browser.close()
+
+if __name__ == "__main__":
+    run_automation()
 
 if __name__ == "__main__":
     run_automation()
