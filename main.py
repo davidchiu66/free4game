@@ -4,7 +4,6 @@ import requests
 import json
 import re
 from playwright.sync_api import sync_playwright
-# 【关键修改 1】删除了 from playwright_stealth import stealth_sync 
 
 SERVER_ID = os.environ.get("SERVER_ID", "未知服务器")
 TG_BOT_TOKEN = os.environ.get("TG_BOT_TOKEN")
@@ -79,20 +78,22 @@ def run_automation():
         page = context.new_page()
         
         # ---------------------------------------------------------
-        # 【关键修改 2】用干净的手动注入代替有 BUG 的 stealth_sync
+        # 【终极武器】注入完美的 Stealth JS，解决 reCAPTCHA 拦截
         # ---------------------------------------------------------
-        page.add_init_script("""
-            Object.defineProperty(navigator, 'webdriver', {
-                get: () => undefined
-            });
-            window.chrome = {
-                runtime: {}
-            };
-        """)
+        print("正在下载并注入完美版 Stealth JS...")
+        try:
+            # 从开源社区直接拉取纯净的潜行脚本，完美绕过检测
+            stealth_js = requests.get("https://raw.githubusercontent.com/requireCool/stealth.min.js/main/stealth.min.js", timeout=10).text
+            page.add_init_script(stealth_js)
+            print("✅ Stealth JS 注入成功！(将骗过 reCAPTCHA)")
+        except Exception as e:
+            print(f"⚠️ 下载 Stealth JS 失败，使用备用方案... ({e})")
+            page.add_init_script("""
+                Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+                window.chrome = { runtime: {} };
+            """)
         
-        # 依然保留日志监听，方便我们观察
         page.on("console", lambda msg: print(f"🖥️ [网页内部日志] {msg.type}: {msg.text}"))
-        page.on("pageerror", lambda err: print(f"💥 [网页 JS 报错] {err}"))
         
         masked_id = mask_string(SERVER_ID)
 
@@ -106,20 +107,14 @@ def run_automation():
 
             for attempt in range(1, max_retries + 1):
                 print(f"\n--- 开始第 {attempt} 次续期检查 ---")
-                print(f"当前所处 URL: {page.url}")
-                
                 time.sleep(5)
                 
                 console_header = page.get_by_role("heading", name="Console", exact=True)
-                is_page_loaded = console_header.is_visible(timeout=5000)
-                
-                if not is_page_loaded:
+                if not console_header.is_visible(timeout=5000):
                     print("⚠️ 警告：未检测到 Console 标题。")
                     if page.get_by_text("Just a moment", exact=False).is_visible() or page.get_by_text("Cloudflare", exact=False).is_visible():
-                        print("🛡️ 检测到 Cloudflare 安全拦截，等待 15 秒...")
+                        print("🛡️ 等待 Cloudflare 解除...")
                         time.sleep(15)
-                    
-                    print("🔄 尝试刷新页面以恢复白屏...")
                     page.reload()
                     page.wait_for_load_state('domcontentloaded')
                     continue 
@@ -135,19 +130,36 @@ def run_automation():
                         is_success = True
                         break 
                 
-                print(f"发现续期按钮，准备点击...")
+                # ---------------------------------------------------------
+                # 【关键修复】模拟真人点击流程，彻底废弃 force=True
+                # ---------------------------------------------------------
+                print(f"发现续期按钮，准备模拟真人点击...")
                 try:
-                    renew_button.click(force=True, timeout=5000)
-                    print("✅ 点击动作已触发！")
+                    # 1. 强制滚动，确保按钮 100% 暴露在视口内
+                    renew_button.scroll_into_view_if_needed(timeout=5000)
+                    time.sleep(1) 
+                    
+                    # 2. 模拟鼠标轨迹，移动到按钮上方 (产生熵，取悦 reCAPTCHA)
+                    renew_button.hover(timeout=5000)
+                    time.sleep(0.5)
+                    
+                    # 3. 真实点击（带150ms按下延迟，更像真人）
+                    renew_button.click(delay=150, timeout=5000)
+                    print("✅ 真人点击动作已触发！")
                 except Exception as click_err:
-                    print(f"⚠️ 点击按钮时出错: {str(click_err).split('Call log:')[0]}")
+                    print(f"⚠️ 点击按钮时出错 (可能被广告遮挡): {str(click_err).split('Call log:')[0]}")
+                    page.screenshot(path=f"debug_click_err_{attempt}.png", full_page=True)
                     continue
                 
-                print("⏳ 开始等待 90 秒的广告播放时间...")
+                # 截图验证：点击后到底弹出了什么？
+                print("📸 正在截取点击后 5 秒的画面...")
+                time.sleep(5)
+                page.screenshot(path=f"debug_after_click_{attempt}.png", full_page=True)
+                
+                print("⏳ 开始等待 85 秒的广告播放时间...")
                 for wait_step in range(3):
-                    time.sleep(30)
-                    print(f"   - 广告等待中 ({ (wait_step + 1) * 30 }/90秒)，当前 URL: {page.url}")
-                    page.screenshot(path=f"debug_ad_wait_{attempt}_{wait_step}.png")
+                    time.sleep(28)
+                    print(f"   - 广告等待中，当前 URL: {page.url}")
                 
                 print("🔄 广告等待结束，正在刷新页面以确认最终状态...")
                 page.reload()
@@ -159,14 +171,13 @@ def run_automation():
 
             remaining_time = "未知"
             try:
-                print("正在提取服务器剩余时长...")
                 time_locator = page.locator("p", has_text=re.compile(r"suspended", re.IGNORECASE)).locator("strong").first
                 if time_locator.is_visible(timeout=5000):
                     remaining_time = time_locator.inner_text().strip()
-            except Exception as e:
-                print(f"⚠️ 提取时长时发生错误: {e}")
+            except:
+                pass
 
-            print("\n尝试安全地转移焦点，并定位底部图表区域进行截图...")
+            print("\n尝试定位底部图表区域进行截图...")
             try:
                 console_header.click(timeout=3000)
             except:
@@ -210,8 +221,7 @@ def run_automation():
                 f"❌ <b>Game4Free 机器</b>\n"
                 f"🖥 服务器: <code>{masked_id}</code>\n"
                 f"⚠️ 状态: 续期失败\n"
-                f"📝 原因: <code>{error_details}</code>\n"
-                f"🔗 最终 URL: <code>{page.url}</code>" 
+                f"📝 原因: <code>{error_details}</code>" 
             )
             send_tg_report(fail_msg, error_screenshot)
             
