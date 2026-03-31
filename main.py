@@ -69,11 +69,13 @@ def run_automation():
     screenshot_path = "result.png"
     
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
+        # 【关键修改】：关闭无头模式，伪装成真实用户
+        browser = p.chromium.launch(headless=False) 
         context = browser.new_context(
             user_agent=CUSTOM_USER_AGENT,
             viewport={'width': 1280, 'height': 800}
         )
+        # ... 后面的代码完全保持不变 ...
 
         if USER_COOKIES:
             formatted_cookies = parse_raw_cookies(USER_COOKIES)
