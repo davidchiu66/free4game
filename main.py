@@ -4,7 +4,6 @@ import requests
 import json
 import re
 from playwright.sync_api import sync_playwright
-# 【新增】引入反检测潜行模块
 from playwright_stealth import stealth_sync 
 
 # 1. 从环境变量获取配置
@@ -73,10 +72,18 @@ def run_automation():
     screenshot_path = "result.png"
     
     with sync_playwright() as p:
+        # ---------------------------------------------------------
+        # 【关键升级 1】注入允许广告自动播放的底层参数
+        # ---------------------------------------------------------
         browser = p.chromium.launch(
             headless=False, 
             channel="chrome", 
-            args=["--disable-blink-features=AutomationControlled"] 
+            args=[
+                "--disable-blink-features=AutomationControlled",
+                "--autoplay-policy=no-user-gesture-required", # 强制允许视频广告自动播放
+                "--mute-audio", # 静音（防止因为有声音被拦截）
+                "--disable-features=IsolateOrigins,site-per-process" # 帮助处理跨域广告 iframe
+            ] 
         )
         context = browser.new_context(
             user_agent=CUSTOM_USER_AGENT,
@@ -104,80 +111,73 @@ def run_automation():
             for attempt in range(1, max_retries + 1):
                 print(f"\n--- 开始第 {attempt} 次续期检查 ---")
                 
-                print("正在寻找续期按钮...")
-                renew_button = page.get_by_role(
-                    "button", 
-                    name=re.compile(r"add 90 minutes", re.IGNORECASE)
-                )
+                # 等待基础框架渲染
+                time.sleep(5)
                 
-                try:
-                    renew_button.wait_for(state="visible", timeout=15000)
-                except Exception as wait_err:
-                    print(f"等待按钮超时或出错，详细信息: {str(wait_err).split('Call log:')[0]}")
+                renew_button = page.get_by_role("button", name=re.compile(r"add 90 minutes", re.IGNORECASE))
                 
-                if not renew_button.is_visible():
-                    print("尝试备用定位策略...")
-                    fallback_button = page.locator("button:has-text('90')").filter(has_text=re.compile(r"minutes", re.IGNORECASE)).first
-                    if fallback_button.is_visible():
-                        renew_button = fallback_button
-                    else:
-                        print("✅ 确认续期按钮不存在 (已成功续期)。")
-                        is_success = True
-                        break 
+                # ---------------------------------------------------------
+                # 【关键升级 2】严苛的成功校验逻辑 (防止白屏假阳性)
+                # ---------------------------------------------------------
+                # 检查页面是否真的加载出来了（有没有 Console 标题）
+                console_header = page.get_by_role("heading", name="Console", exact=True)
+                is_page_loaded = console_header.is_visible(timeout=5000)
                 
+                if not is_page_loaded:
+                    print("⚠️ 警告：页面似乎是白屏或未完全加载！")
+                elif not renew_button.is_visible():
+                    # 只有页面正常加载，且找不到按钮，才是真成功
+                    print("✅ 页面加载正常，且续期按钮不存在 (已成功续期)。")
+                    is_success = True
+                    break 
+                
+                # 如果没成功，继续点击流程
                 print(f"发现续期按钮，正在执行点击 (当前尝试: {attempt}/{max_retries})...")
-                renew_button.click()
+                renew_button.click(force=True)
                 
-                # 【关键修改 1】延长等待时间到 90 秒，给视频广告充分的时间
-                print("正在等待 90 秒 (让视频广告有充足的时间播完)...")
+                print("正在等待 90 秒 (让后台广告疯狂播放吧)...")
                 time.sleep(90) 
                 
-                print("正在刷新页面以确认状态...")
+                print("正在刷新页面以确认最终状态...")
                 page.reload()
                 page.wait_for_load_state('domcontentloaded')
-                
-                # 【新增防御】刷新后额外等待 5 秒，防止前端框架还没把页面画出来导致白屏
-                print("等待前端渲染完成...")
-                time.sleep(5)
+                print("等待前端 React 框架渲染...")
+                time.sleep(8) # 多等一会儿，防止截图截到还没渲染完的白屏
 
             if not is_success:
-                raise Exception(f"已重试 {max_retries} 次，但续期按钮依然存在。可能是广告播放失败。")
+                raise Exception(f"已重试 {max_retries} 次，续期按钮依然存在或页面白屏崩溃。")
 
             # ---------------------------------------------------------
-            # 【新增逻辑】获取剩余时长
+            # 【关键升级 3】精准提取剩余时长
             # ---------------------------------------------------------
             remaining_time = "未知"
             try:
                 print("正在提取服务器剩余时长...")
-                # 定位包含 "suspended" 的 p 标签，然后获取它内部 strong 标签的文本
-                time_element = page.locator("p:has-text('suspended') strong")
-                if time_element.is_visible(timeout=5000):
-                    remaining_time = time_element.inner_text().strip()
+                # 使用更宽容的正则寻找包含 "suspended" 的段落，并提取里面的 strong 标签
+                time_locator = page.locator("p", has_text=re.compile(r"suspended", re.IGNORECASE)).locator("strong").first
+                if time_locator.is_visible(timeout=5000):
+                    remaining_time = time_locator.inner_text().strip()
                     print(f"✅ 成功获取剩余时长: {remaining_time}")
                 else:
-                    print("⚠️ 未找到包含时间的 strong 标签。")
+                    print("⚠️ 未找到包含时间的标签，可能页面结构有变。")
             except Exception as e:
                 print(f"⚠️ 提取时长时发生错误: {e}")
 
             print("\n尝试安全地转移焦点，并定位底部图表区域进行截图...")
-            
             try:
-                console_header = page.get_by_role("heading", name="Console", exact=True)
-                console_header.click(timeout=5000)
-            except Exception as e:
+                console_header.click(timeout=3000)
+            except:
                 page.mouse.click(1270, 400)
             
             try:
                 cpu_label = page.get_by_text("CPU Load", exact=False)
-                cpu_label.scroll_into_view_if_needed(timeout=5000)
-            except Exception as e:
+                cpu_label.scroll_into_view_if_needed(timeout=3000)
+            except:
                 page.mouse.wheel(delta_x=0, delta_y=2000)
 
-            # 截图前最后等待 3 秒，确保图表和滚动就绪
             time.sleep(3) 
             page.screenshot(path=screenshot_path, full_page=True)
             
-            # 【关键修改 2】将获取到的剩余时间添加到成功通知中
             success_msg = (
                 f"🎁 <b>Game4Free 续期报告</b>\n\n"
                 f"📊 共 1 个账号\n"
@@ -197,8 +197,7 @@ def run_automation():
             
             error_screenshot = "error.png"
             try:
-                page.get_by_role("heading", name="Console", exact=True).click(timeout=3000)
-                page.mouse.wheel(delta_x=0, delta_y=2000)
+                # 失败时不要盲目滚动了，直接截取当前屏幕，看看卡在什么广告上了
                 time.sleep(2)
                 page.screenshot(path=error_screenshot, full_page=True)
             except:
