@@ -2,8 +2,10 @@ import os
 import time
 import requests
 import json
-import re  # 【新增】导入正则表达式模块
+import re
 from playwright.sync_api import sync_playwright
+# 【新增】引入反检测潜行模块
+from playwright_stealth import stealth_sync 
 
 # 1. 从环境变量获取配置
 SERVER_ID = os.environ.get("SERVER_ID", "未知服务器")
@@ -65,17 +67,24 @@ def send_tg_report(caption_html: str, photo_path: str = None):
     except Exception as e:
         print(f"❌ TG推送失败: {e}")
 
+# ... [保留之前的环境变量获取、parse_raw_cookies、mask_string 和 send_tg_report 函数不变] ...
+
 def run_automation():
     screenshot_path = "result.png"
     
     with sync_playwright() as p:
-        # 【关键修改】：关闭无头模式，伪装成真实用户
-        browser = p.chromium.launch(headless=False) 
+        # ---------------------------------------------------------
+        # 【关键升级 1】使用真实的 Chrome 浏览器，并添加底层反检测参数
+        # ---------------------------------------------------------
+        browser = p.chromium.launch(
+            headless=False, 
+            channel="chrome", # 指定使用正版 Google Chrome (具备视频解码能力)
+            args=["--disable-blink-features=AutomationControlled"] # 隐藏自动化特征
+        )
         context = browser.new_context(
             user_agent=CUSTOM_USER_AGENT,
             viewport={'width': 1280, 'height': 800}
         )
-        # ... 后面的代码完全保持不变 ...
 
         if USER_COOKIES:
             formatted_cookies = parse_raw_cookies(USER_COOKIES)
@@ -83,6 +92,12 @@ def run_automation():
                 context.add_cookies(formatted_cookies)
 
         page = context.new_page()
+        
+        # ---------------------------------------------------------
+        # 【关键升级 2】给当前页面注入 Stealth 伪装脚本
+        # ---------------------------------------------------------
+        stealth_sync(page)
+        
         masked_id = mask_string(SERVER_ID)
 
         try:
@@ -96,26 +111,18 @@ def run_automation():
             for attempt in range(1, max_retries + 1):
                 print(f"\n--- 开始第 {attempt} 次续期检查 ---")
                 
-                # ---------------------------------------------------------
-                # 【关键优化】使用正则模糊匹配，忽略大小写，并且只要包含 90 Minutes 即可
-                # ---------------------------------------------------------
                 print("正在寻找续期按钮...")
-                # 策略 1: 使用正则表达式忽略大小写匹配
                 renew_button = page.get_by_role(
                     "button", 
                     name=re.compile(r"add 90 minutes", re.IGNORECASE)
                 )
                 
                 try:
-                    # 等待最多 15 秒让按钮出现
                     renew_button.wait_for(state="visible", timeout=15000)
                 except Exception as wait_err:
-                    # 【关键优化】把错误打印出来，而不是默默 pass
                     print(f"等待按钮超时或出错，详细信息: {str(wait_err).split('Call log:')[0]}")
                 
-                # 如果定位到了多个匹配的按钮，或者依然没找到
                 if not renew_button.is_visible():
-                    # 尝试备用定位策略：查找任何包含 "90" 和 "Minutes" 的按钮
                     print("尝试备用定位策略...")
                     fallback_button = page.locator("button:has-text('90')").filter(has_text=re.compile(r"minutes", re.IGNORECASE)).first
                     if fallback_button.is_visible():
@@ -126,18 +133,19 @@ def run_automation():
                         break 
                 
                 print(f"发现续期按钮，正在执行点击 (当前尝试: {attempt}/{max_retries})...")
-                # 强制点击，以防被其他透明元素遮挡
-                renew_button.click(force=True)
+                # 【优化】恢复正常的点击方式，让 Playwright 自行处理可见性和遮挡问题
+                renew_button.click()
                 
-                print("正在等待 45 秒...")
-                time.sleep(45) 
+                # 【优化】将等待时间延长到 60 秒，以防某些视频广告较长
+                print("正在等待 60 秒 (让视频广告有充足的时间播完)...")
+                time.sleep(60) 
                 
                 print("正在刷新页面以确认状态...")
                 page.reload()
                 page.wait_for_load_state('domcontentloaded')
 
             if not is_success:
-                raise Exception(f"已重试 {max_retries} 次，但续期按钮依然存在。")
+                raise Exception(f"已重试 {max_retries} 次，但续期按钮依然存在。可能是广告播放失败或被拦截。")
 
             print("\n尝试安全地转移焦点，并定位底部图表区域进行截图...")
             
