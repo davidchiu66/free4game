@@ -4,7 +4,7 @@ import requests
 import json
 import re
 from playwright.sync_api import sync_playwright
-from playwright_stealth import stealth_sync 
+# 【关键修改 1】删除了 from playwright_stealth import stealth_sync 
 
 SERVER_ID = os.environ.get("SERVER_ID", "未知服务器")
 TG_BOT_TOKEN = os.environ.get("TG_BOT_TOKEN")
@@ -53,9 +53,6 @@ def run_automation():
     screenshot_path = "result.png"
     
     with sync_playwright() as p:
-        # ---------------------------------------------------------
-        # 【关键调试 1】添加防崩溃的底层启动参数
-        # ---------------------------------------------------------
         browser = p.chromium.launch(
             headless=False, 
             channel="chrome", 
@@ -64,9 +61,9 @@ def run_automation():
                 "--autoplay-policy=no-user-gesture-required", 
                 "--mute-audio", 
                 "--disable-features=IsolateOrigins,site-per-process",
-                "--disable-dev-shm-usage", # 解决 Docker/CI 环境下内存不足导致的崩溃白屏
-                "--disable-gpu",           # 禁用 GPU 硬件加速，防止虚拟显示器渲染失败
-                "--no-sandbox"             # 降低沙盒限制带来的权限问题
+                "--disable-dev-shm-usage", 
+                "--disable-gpu",           
+                "--no-sandbox"             
             ] 
         )
         context = browser.new_context(
@@ -80,14 +77,21 @@ def run_automation():
                 context.add_cookies(formatted_cookies)
 
         page = context.new_page()
-        stealth_sync(page)
         
         # ---------------------------------------------------------
-        # 【关键调试 2】注入页面日志和错误监听器
+        # 【关键修改 2】用干净的手动注入代替有 BUG 的 stealth_sync
         # ---------------------------------------------------------
-        # 捕获网页内部的所有 console.log, console.error
+        page.add_init_script("""
+            Object.defineProperty(navigator, 'webdriver', {
+                get: () => undefined
+            });
+            window.chrome = {
+                runtime: {}
+            };
+        """)
+        
+        # 依然保留日志监听，方便我们观察
         page.on("console", lambda msg: print(f"🖥️ [网页内部日志] {msg.type}: {msg.text}"))
-        # 捕获网页抛出的未处理异常 (JS 报错)
         page.on("pageerror", lambda err: print(f"💥 [网页 JS 报错] {err}"))
         
         masked_id = mask_string(SERVER_ID)
@@ -139,15 +143,10 @@ def run_automation():
                     print(f"⚠️ 点击按钮时出错: {str(click_err).split('Call log:')[0]}")
                     continue
                 
-                # ---------------------------------------------------------
-                # 【关键调试 3】广告播放期间的状态追踪
-                # ---------------------------------------------------------
                 print("⏳ 开始等待 90 秒的广告播放时间...")
-                # 将 90 秒拆分成 3 个 30 秒，方便我们在等待途中查看页面到底有没有崩
                 for wait_step in range(3):
                     time.sleep(30)
                     print(f"   - 广告等待中 ({ (wait_step + 1) * 30 }/90秒)，当前 URL: {page.url}")
-                    # 在等待中途截一张图保存到本地 (不发送到TG)，这对于排查到底卡在什么广告上非常有用！
                     page.screenshot(path=f"debug_ad_wait_{attempt}_{wait_step}.png")
                 
                 print("🔄 广告等待结束，正在刷新页面以确认最终状态...")
@@ -212,7 +211,7 @@ def run_automation():
                 f"🖥 服务器: <code>{masked_id}</code>\n"
                 f"⚠️ 状态: 续期失败\n"
                 f"📝 原因: <code>{error_details}</code>\n"
-                f"🔗 最终 URL: <code>{page.url}</code>" # 失败时附带最后的 URL
+                f"🔗 最终 URL: <code>{page.url}</code>" 
             )
             send_tg_report(fail_msg, error_screenshot)
             
