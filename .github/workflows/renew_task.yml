@@ -38,4 +38,9 @@ jobs:
           TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
           USER_COOKIES: ${{ secrets.USER_COOKIES }}
-        run: python main.py
+        run: |
+          # 安装虚拟显示器工具
+          sudo apt-get update
+          sudo apt-get install -y xvfb
+          # 使用虚拟显示器运行我们的脚本
+          xvfb-run --auto-servernum --server-args="-screen 0 1280x800x24" python main.py
