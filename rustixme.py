@@ -4,11 +4,9 @@ import requests
 import urllib.parse
 from playwright.sync_api import sync_playwright
 
-# =====================================================================
-# 1. 环境变量获取 (包含新增的 SERVER_UUID)
-# =====================================================================
-SERVER_ID = os.environ.get("SERVER_ID", "未知服务器") # 用于 UI 访问的短 ID
-SERVER_UUID = os.environ.get("SERVER_UUID", SERVER_ID) # 用于 API 访问的完整 UUID，默认回退为短 ID 防止报错
+# 获取环境变量
+SERVER_ID = os.environ.get("SERVER_ID", "未知服务器")
+SERVER_UUID = os.environ.get("SERVER_UUID", SERVER_ID) 
 TG_BOT_TOKEN = os.environ.get("TG_BOT_TOKEN")
 TG_CHAT_ID = os.environ.get("TG_CHAT_ID")
 USER_COOKIES = os.environ.get("USER_COOKIES")
@@ -16,7 +14,6 @@ USER_COOKIES = os.environ.get("USER_COOKIES")
 CUSTOM_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36"
 
 def parse_raw_cookies(raw_cookie_str: str, domain: str = "my.rustix.me") -> list:
-    """解析并格式化 Cookie 字符串，供 Playwright 注入使用"""
     cookies_list = []
     if not raw_cookie_str:
         return cookies_list
@@ -28,13 +25,11 @@ def parse_raw_cookies(raw_cookie_str: str, domain: str = "my.rustix.me") -> list
     return cookies_list
 
 def mask_string(s: str) -> str:
-    """脱敏敏感的服务器 ID，用于 TG 推送显示"""
     if not s or len(s) <= 4:
         return s
     return f"{s[:3]}****{s[-2:]}"
 
 def send_tg_report(caption_html: str, photo_path: str = None):
-    """将运行结果和截图推送到 Telegram"""
     if not TG_BOT_TOKEN or not TG_CHAT_ID:
         print("未配置 Telegram Token 或 Chat ID，跳过通知。")
         return
@@ -73,7 +68,6 @@ def run_automation():
             viewport={'width': 1280, 'height': 800}
         )
 
-        # 注入用户配置的 Cookie
         if USER_COOKIES:
             formatted_cookies = parse_raw_cookies(USER_COOKIES)
             if formatted_cookies:
@@ -82,74 +76,63 @@ def run_automation():
         page = context.new_page()
 
         try:
-            # =====================================================================
-            # 2. 预热页面并获取 XSRF-TOKEN
-            # =====================================================================
             target_url = f"https://my.rustix.me/server/{SERVER_ID}/console"
-            print(f"准备打开服务器页面以刷新 Token: {target_url}")
+            print(f"准备打开服务器页面: {target_url}")
 
             try:
-                # 只需等待基础 DOM 加载完毕，不再苦等脆弱的 UI 文本 (修复之前的 15000ms 超时)
                 page.goto(target_url, timeout=60000, wait_until="domcontentloaded")
-                print("✅ 页面加载成功，Cookie 环境已准备就绪！")
+                print("✅ 页面基础结构加载成功！")
             except Exception as goto_err:
-                print(f"⚠️ 页面加载超时，但仍将尝试执行 API: {goto_err}")
+                print(f"⚠️ 页面加载超时，尝试继续执行: {goto_err}")
 
-            time.sleep(3) # 简短等待，确保浏览器解析完响应头里的 Set-Cookie
-
-            # 从当前会话的 Cookie 中提取出 XSRF-TOKEN 并解码
-            xsrf_token = ""
-            for cookie in context.cookies():
-                if cookie["name"] == "XSRF-TOKEN":
-                    xsrf_token = urllib.parse.unquote(cookie["value"])
-                    break
+            print("等待 8 秒，确保页面完全渲染并且 Cloudflare 验证通过...")
+            time.sleep(8) 
             
-            # =====================================================================
-            # 3. 构建并发送底层 API 启动指令
-            # =====================================================================
+            # =========================================================
+            # 【终极伪装】完美复刻真实标头的 API 注入
+            # =========================================================
             print("=====================================================")
-            print("🚀 启动 API 拉起模式")
+            print("🚀 启动携带完美伪装标头的原生 API 注入拉起")
             print("=====================================================")
             
-            if not SERVER_UUID or len(SERVER_UUID) < 15:
-                print("⚠️ 警告：检测到你似乎没有配置完整的 SERVER_UUID。API 请求可能会因为端点错误而失败！")
-
-            if not xsrf_token:
-                print("⚠️ 警告：未获取到 XSRF-TOKEN！")
-
-            # 使用 SERVER_UUID 拼接正确的 API 端点
-            power_api_url = f"https://my.rustix.me/api/client/servers/{SERVER_UUID}/power"
-            print(f"正在向 {power_api_url} 发送启动指令...")
+            # 注入脚本：我们精确补全了缺失的标头
+            api_script = f"""
+                async () => {{
+                    function getXsrfToken() {{
+                        // 兼容某些情况下 XSRF-TOKEN 被截断为 SRF-TOKEN 的情况
+                        const match = document.cookie.match(new RegExp('(^| )(?:X)?SRF-TOKEN=([^;]+)'));
+                        return match ? decodeURIComponent(match[2]) : '';
+                    }}
+                    
+                    try {{
+                        const response = await fetch('/api/client/servers/{SERVER_UUID}/power', {{
+                            method: 'POST',
+                            headers: {{
+                                'Accept': 'application/json',
+                                'Content-Type': 'application/json',
+                                'X-Requested-With': 'XMLHttpRequest',  // <--- 核心修复：声明这是一个合法的 Ajax 请求
+                                'X-XSRF-TOKEN': getXsrfToken()
+                            }},
+                            body: JSON.stringify({{ signal: 'start' }})
+                        }});
+                        return response.status;
+                    }} catch (e) {{
+                        return -1;
+                    }}
+                }}
+            """
             
-            # 通过 Playwright Context 发送 POST 请求，自动携带所有 Cookie
-            api_response = context.request.post(
-                power_api_url,
-                headers={
-                    "Accept": "application/json",
-                    "Content-Type": "application/json",
-                    "X-XSRF-TOKEN": xsrf_token
-                },
-                data={
-                    "signal": "start" # 核心启动信号
-                }
-            )
-
-            status_code = api_response.status
-            print(f"📡 API 响应状态码: {status_code}")
+            status_code = page.evaluate(api_script)
+            print(f"📡 注入 API 响应状态码: {status_code}")
             
             action_result = ""
-            # 翼龙面板 API 成功执行 power 指令通常返回 204 No Content，兼容 200
             if status_code in [200, 204]:
-                print("🎉 成功！后端已确认接收拉起指令，服务器正在启动！")
-                action_result = f"API 触发启动成功 (状态码: {status_code})"
+                print("🎉 成功！完美伪装的 API 指令已下达，服务器正在启动！")
+                action_result = f"完美标头 API 触发成功 (状态码: {status_code})"
             else:
-                response_text = api_response.text()
-                print(f"⚠️ API 请求返回异常: {response_text}")
-                action_result = f"API 触发异常 (状态码: {status_code})"
+                print(f"⚠️ API 请求异常或被拦截 (状态码: {status_code})")
+                action_result = f"完美标头 API 触发异常 (状态码: {status_code})"
 
-            # =====================================================================
-            # 4. 等待结果并截图反馈
-            # =====================================================================
             print("⏳ 正在等待 45 秒，让服务器执行启动过程...")
             time.sleep(45)
             
