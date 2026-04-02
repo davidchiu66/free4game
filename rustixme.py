@@ -78,72 +78,67 @@ def run_automation():
             target_url = f"https://my.rustix.me/server/{SERVER_ID}/console"
             print(f"准备打开服务器页面: {target_url}")
 
+            # =========================================================
+            # 【策略 1】深度等待：确保网页的 JS 完全加载并绑定完毕
+            # =========================================================
             try:
-                page.goto(target_url, timeout=60000, wait_until="domcontentloaded")
-                print("✅ 页面基础结构加载成功！")
+                # 升级等待策略：等待到网络请求基本静止，确保前端框架就绪
+                page.goto(target_url, timeout=60000, wait_until="networkidle")
+                print("✅ 页面及所有后台脚本加载完成 (Network Idle)！")
             except Exception as goto_err:
-                print(f"⚠️ 页面加载超时，尝试继续执行: {goto_err}")
+                print(f"⚠️ 网络未完全静止，但可能已够用，尝试继续执行: {goto_err}")
 
+            # 强行硬等待 5 秒，给前端留出最后的事件绑定时间
             time.sleep(5) 
             
-            # =========================================================
-            # 【绝对拟真外挂逻辑】使用纯正的物理鼠标轨迹和按压
-            # =========================================================
-            print("正在扫描桌面端英文「Start」按钮...")
+            print("正在扫描「Start」按钮...")
+            start_button = page.locator("button").filter(has_text=re.compile(r"Start", re.IGNORECASE)).first
             
-            # 定位包含 "Start" 文本的按钮
-            start_button = page.locator("button").filter(has_text=re.compile(r"^Start$", re.IGNORECASE)).first
-            
-            # 如果没找到，尝试模糊匹配（以防有前后空格）
-            if not start_button.is_visible():
-                 start_button = page.locator("button").filter(has_text=re.compile(r"Start", re.IGNORECASE)).first
-
             if not start_button.is_visible(timeout=10000):
                 print("⚠️ 警告：屏幕上没有找到可见的「Start」按钮！")
             else:
                 print("✅ 成功定位到可见的「Start」按钮！")
-                try:
-                    # 获取屏幕绝对坐标
-                    box = start_button.bounding_box()
-                    if box:
-                        # 计算按钮正中心的像素点
-                        target_x = box["x"] + box["width"] / 2
-                        target_y = box["y"] + box["height"] / 2
+                
+                # =========================================================
+                # 【策略 2】机枪连发确认法：直到你真的生效为止
+                # =========================================================
+                print("▶️ 开始执行【轮询确认点击】策略...")
+                
+                max_attempts = 10
+                action_successful = False
+                
+                for attempt in range(1, max_attempts + 1):
+                    # 每次点击前先检查按钮是否已经因为上一秒的点击变成了 disabled
+                    if start_button.is_disabled():
+                        print(f"🎉 成功！在第 {attempt} 次检测时，发现按钮已变为 disabled。拉起请求已发送！")
+                        action_successful = True
+                        break
+                    
+                    print(f"   - 第 {attempt}/{max_attempts} 次尝试触发 Start...")
+                    try:
+                        # 确保按钮在视口内
+                        start_button.scroll_into_view_if_needed()
                         
-                        print(f"▶️ 目标坐标锁定：X={target_x}, Y={target_y}。开始模拟人类手部动作...")
-                        
-                        # 1. 模拟鼠标平滑移动过去（产生鼠标滑过的事件流）
-                        page.mouse.move(target_x, target_y, steps=10)
-                        time.sleep(0.2)
-                        
-                        # 2. 模拟真实物理按下（鼠标左键）
-                        print("   - 鼠标按下 (Mousedown)...")
-                        page.mouse.down()
-                        
-                        # 3. 模拟人类手指停留的几十毫秒
-                        time.sleep(0.15) 
-                        
-                        # 4. 模拟真实物理抬起
-                        print("   - 鼠标抬起 (Mouseup)...")
-                        page.mouse.up()
-                        
-                        print("✅ 绝对物理拟真点击完成！")
-                    else:
-                        print("⚠️ 无法获取按钮的屏幕物理坐标。")
-                except Exception as click_err:
-                    print(f"⚠️ 物理点击时遇到异常: {click_err}")
+                        # 使用简单的原生点击，因为现在的问题更可能是前端还没准备好
+                        start_button.click(force=True, timeout=3000)
+                    except Exception as click_err:
+                        print(f"     点击时遇到小问题 (忽略): {click_err}")
+                    
+                    # 每次点击后等待 3 秒，让前端有机会响应并改变按钮状态
+                    time.sleep(3)
+                
+                if not action_successful:
+                    print("⚠️ 警告：10 次尝试完毕，按钮依然处于可点击状态，前端极有可能彻底拦截了自动化点击。")
             
-            print("⏳ 正在等待 60 秒，让服务器执行启动过程...")
-            time.sleep(60)
+            print("⏳ 正在等待最终的 45 秒，让服务器执行启动过程...")
+            time.sleep(45)
             
-            print("🔄 正在刷新页面以获取最新状态...")
+            print("🔄 正在刷新页面以获取最终截图状态...")
             try:
                 page.reload(timeout=60000, wait_until="domcontentloaded")
             except:
                 pass
-            
             time.sleep(8)
-            # =========================================================
             
             print("📸 正在截取最终状态全屏快照...")
             page.screenshot(path=screenshot_path, full_page=True)
@@ -154,8 +149,8 @@ def run_automation():
                 f"━━━━━━━━━━━━━━━\n\n"
                 f"✅ <b>Rustix 机器</b>\n"
                 f"🖥 服务器: <code>{masked_id}</code>\n"
-                f"⚙️ 动作: 执行了物理坐标平滑点击\n"
-                f"⏳ 状态: 脚本执行完毕，请查看截图确认状态\n"
+                f"⚙️ 动作: 执行了轮询确认点击策略\n"
+                f"⏳ 状态: 脚本执行完毕，请查看截图确认最终状态\n"
                 f"🔑 Cookie: 正常加载"
             )
             send_tg_report(success_msg, screenshot_path)
