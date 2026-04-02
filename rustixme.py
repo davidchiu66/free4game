@@ -3,19 +3,15 @@ import time
 import requests
 from playwright.sync_api import sync_playwright
 
-# 1. 获取环境变量
+# 获取环境变量
 SERVER_ID = os.environ.get("SERVER_ID", "未知服务器")
 TG_BOT_TOKEN = os.environ.get("TG_BOT_TOKEN")
 TG_CHAT_ID = os.environ.get("TG_CHAT_ID")
 USER_COOKIES = os.environ.get("USER_COOKIES")
 
-# 使用与之前一致的 User-Agent
 CUSTOM_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36"
 
 def parse_raw_cookies(raw_cookie_str: str, domain: str = "my.rustix.me") -> list:
-    """
-    解析原生的 Cookie 字符串，默认注入到 my.rustix.me 域名下。
-    """
     cookies_list = []
     if not raw_cookie_str:
         return cookies_list
@@ -27,13 +23,11 @@ def parse_raw_cookies(raw_cookie_str: str, domain: str = "my.rustix.me") -> list
     return cookies_list
 
 def mask_string(s: str) -> str:
-    """脱敏服务器ID"""
     if not s or len(s) <= 4:
         return s
     return f"{s[:3]}****{s[-2:]}"
 
 def send_tg_report(caption_html: str, photo_path: str = None):
-    """发送带有截图的 Telegram HTML 格式消息"""
     if not TG_BOT_TOKEN or not TG_CHAT_ID:
         print("未配置 Telegram Token 或 Chat ID，跳过通知。")
         return
@@ -58,7 +52,6 @@ def run_automation():
     masked_id = mask_string(SERVER_ID)
     
     with sync_playwright() as p:
-        # 启动浏览器 (如果你在本地测试，可以把 headless 改为 False 看运行过程)
         browser = p.chromium.launch(
             headless=True,
             args=[
@@ -73,7 +66,6 @@ def run_automation():
             viewport={'width': 1280, 'height': 800}
         )
 
-        # 注入 Cookie
         if USER_COOKIES:
             formatted_cookies = parse_raw_cookies(USER_COOKIES)
             if formatted_cookies:
@@ -82,46 +74,51 @@ def run_automation():
         page = context.new_page()
 
         try:
-            # 拼接并访问控制台 URL
             target_url = f"https://my.rustix.me/server/{SERVER_ID}/console"
             page.goto(target_url, timeout=60000)
             print(f"打开服务器页面: {target_url}")
 
-            # 等待页面基础框架加载完毕 (等待包含 Старт 按钮的元素出现)
             page.wait_for_load_state('domcontentloaded')
             time.sleep(5) 
             
-            print("正在查找「Старт」按钮...")
-            # 根据提供的 HTML 源码，定位文本包含 "Старт" 的按钮
-            start_button = page.get_by_role("button", name="Старт", exact=False)
+            # =========================================================
+            # 【代码修复与逻辑更新】处理双元素报错，并使用“Стоп”按钮作为判断依据
+            # =========================================================
+            print("正在查找「Стоп」按钮进行状态判断...")
             
-            # 确保按钮元素已在 DOM 中可见
-            start_button.wait_for(state="visible", timeout=15000)
+            # 1. 定位 Stop 按钮。使用 exact=True 防止模糊匹配，使用 .first 防止严格模式报错
+            stop_button = page.get_by_role("button", name="Стоп", exact=True).first
             
-            # 核心判断逻辑：检查按钮是否带有 disabled 属性
-            # is_disabled() 返回 True 说明不可点 (服务器已运行)，返回 False 说明可点 (服务器已停止)
-            is_button_disabled = start_button.is_disabled()
+            # 确保 Stop 按钮在页面上可见
+            stop_button.wait_for(state="visible", timeout=15000)
             
+            # 2. 检查 Stop 按钮是否被 disabled
+            is_stop_disabled = stop_button.is_disabled()
             action_taken = ""
             
-            if is_button_disabled:
-                print("✅ 检测到「Старт」按钮为 disabled 状态，服务器已经在运行中，无需拉起。")
-                action_taken = "无需操作 (已在运行)"
-            else:
-                print("⚠️ 检测到「Старт」按钮可点击，服务器处于停止状态。准备执行拉起操作...")
-                # 执行点击操作拉起服务器
+            if is_stop_disabled:
+                print("⚠️ 检测到「Стоп」按钮为 disabled (不可点击) 状态，说明服务器已停止。")
+                print("准备定位「Старт」按钮并执行拉起...")
+                
+                # 定位 Start 按钮。同样使用 .first 解决 2 elements 的报错
+                start_button = page.get_by_role("button", name="Старт", exact=True).first
+                
+                # 执行点击
                 start_button.click(force=True)
                 action_taken = "执行了拉起操作"
-                print("✅ 已点击「Старт」按钮！")
+                print("✅ 已成功点击「Старт」按钮！")
+            else:
+                print("✅ 检测到「Стоп」按钮可用，说明服务器已经在运行中，无需拉起。")
+                action_taken = "无需操作 (已在运行)"
 
-            # 无论刚才是否点击，都强制等待一分钟 (60秒) 以确认最终状态
-            print("⏳ 正在等待 60 秒...")
+            # =========================================================
+
+            print("⏳ 正在等待 60 秒，让服务器状态刷新...")
             time.sleep(60)
             
             print("📸 正在截取最终状态全屏快照...")
             page.screenshot(path=screenshot_path, full_page=True)
             
-            # 组装成功的 TG 通知消息
             success_msg = (
                 f"🎁 <b>Rustix.me 拉起报告</b>\n\n"
                 f"✅ 成功: 1 ⏭ 跳过: 0 ❌ 失败: 0\n"
