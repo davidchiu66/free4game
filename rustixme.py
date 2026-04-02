@@ -64,7 +64,7 @@ def run_automation():
         )
         context = browser.new_context(
             user_agent=CUSTOM_USER_AGENT,
-            viewport={'width': 1280, 'height': 800} # 这里定义了电脑端分辨率
+            viewport={'width': 1280, 'height': 800}
         )
 
         if USER_COOKIES:
@@ -78,7 +78,6 @@ def run_automation():
             target_url = f"https://my.rustix.me/server/{SERVER_ID}/console"
             print(f"准备打开服务器页面: {target_url}")
 
-            # 宽容模式加载页面
             try:
                 page.goto(target_url, timeout=60000, wait_until="domcontentloaded")
                 print("✅ 页面基础结构加载成功！")
@@ -88,42 +87,44 @@ def run_automation():
             time.sleep(5) 
             
             # =========================================================
-            # 【破局逻辑】全域扫描，对所有可见的「Старт」按钮执行点击
+            # 【全新解法】键盘导航绕过鼠标拦截
             # =========================================================
             print("正在扫描页面上所有的「Старт」按钮...")
             
-            # 使用 .all() 获取所有匹配的按钮，而不是单纯的 .first
             start_buttons = page.locator("button").filter(has_text=re.compile(r"Старт", re.IGNORECASE)).all()
             
             if not start_buttons:
                 print("⚠️ 警告：页面上没有找到任何包含「Старт」的按钮！")
             else:
-                print(f"🔍 共发现 {len(start_buttons)} 个「Старт」按钮，准备执行全覆盖点击...")
+                print(f"🔍 共发现 {len(start_buttons)} 个「Старт」按钮，准备执行键盘指令...")
                 
-                # 遍历所有找到的按钮
                 for i, btn in enumerate(start_buttons):
                     try:
-                        # 只有当这个按钮真实渲染在屏幕上时，我们才去操作它
                         if btn.is_visible(timeout=2000):
-                            print(f"▶️ 发现第 {i+1} 个按钮处于可见状态，正在执行拉起...")
+                            print(f"▶️ 发现第 {i+1} 个可见按钮，应用键盘无障碍触发策略...")
                             btn.scroll_into_view_if_needed(timeout=3000)
                             time.sleep(1)
                             
-                            # 物理点击
-                            box = btn.bounding_box()
-                            if box:
-                                page.mouse.click(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2, delay=150)
-                                time.sleep(0.5)
+                            # 1. 赋予元素系统焦点（关键步骤！）
+                            print("   - 强制赋予焦点 (Focus)...")
+                            btn.focus()
+                            time.sleep(0.5)
                             
-                            # 原生点击与事件触发 (上双保险)
-                            btn.dispatch_event("click")
-                            btn.evaluate("node => node.click()")
+                            # 2. 模拟真实用户的回车键
+                            print("   - 敲击 Enter 键...")
+                            page.keyboard.press("Enter")
+                            time.sleep(0.5)
                             
-                            print(f"✅ 第 {i+1} 个按钮点击指令发送完毕！")
+                            # 3. 模拟真实用户的空格键 (有些框架用空格触发按钮)
+                            print("   - 敲击 Space 空格键...")
+                            page.keyboard.press(" ")
+                            time.sleep(0.5)
+                            
+                            print(f"✅ 第 {i+1} 个按钮键盘指令发送完毕！")
                         else:
-                            print(f"⏭️ 第 {i+1} 个按钮属于隐藏状态 (可能是移动端菜单)，已跳过。")
+                            print(f"⏭️ 第 {i+1} 个按钮为隐藏状态，跳过。")
                     except Exception as click_err:
-                        print(f"⚠️ 点击第 {i+1} 个按钮时遇到异常: {click_err}")
+                        print(f"⚠️ 交互第 {i+1} 个按钮时遇到异常: {click_err}")
             
             print("⏳ 正在等待 60 秒，让服务器执行启动过程...")
             time.sleep(60)
@@ -146,7 +147,7 @@ def run_automation():
                 f"━━━━━━━━━━━━━━━\n\n"
                 f"✅ <b>Rustix 机器</b>\n"
                 f"🖥 服务器: <code>{masked_id}</code>\n"
-                f"⚙️ 动作: 执行了全域混合拉起点击\n"
+                f"⚙️ 动作: 执行了键盘无障碍指令拉起\n"
                 f"⏳ 状态: 脚本执行完毕，请查看截图确认状态\n"
                 f"🔑 Cookie: 正常加载"
             )
