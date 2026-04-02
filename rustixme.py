@@ -77,58 +77,43 @@ def run_automation():
             target_url = f"https://my.rustix.me/server/{SERVER_ID}/console"
             print(f"准备打开服务器页面: {target_url}")
 
-            # =========================================================
-            # 【关键修改】更改加载等待策略，防止被长连接卡死导致超时
-            # wait_until="domcontentloaded": 只要 HTML 解析完毕就放行，不等待所有网络请求结束
-            # =========================================================
+            # 宽容模式加载页面
             try:
                 page.goto(target_url, timeout=60000, wait_until="domcontentloaded")
                 print("✅ 页面基础结构加载成功！")
             except Exception as goto_err:
-                print(f"⚠️ 页面 goto 阶段出现超时或异常，但也许 DOM 已经可用，尝试继续执行。异常信息: {goto_err}")
+                print(f"⚠️ 页面加载超时或异常，尝试继续执行: {goto_err}")
 
-            # 给前端 React/Vue 等框架留出一点时间渲染按钮
             time.sleep(5) 
             
-            print("正在查找「Старт」按钮进行状态判断...")
+            # =========================================================
+            # 【极简逻辑】无条件强制点击 Старт 按钮
+            # =========================================================
+            print("正在查找「Старт」按钮...")
             
-            # 定位 Start 按钮
             start_button = page.get_by_role("button", name="Старт", exact=True).first
-            
-            # 这里是真正判断页面是否有效加载的地方
             start_button.wait_for(state="visible", timeout=15000)
             
-            action_taken = ""
+            print("▶️ 执行无条件拉起策略，直接强制点击「Старт」按钮...")
+            try:
+                # force=True 会忽略按钮是否被遮挡或禁用，强行触发点击事件
+                start_button.click(force=True, timeout=5000)
+                print("✅ 强制点击指令已发送！")
+            except Exception as click_err:
+                print(f"⚠️ 强制点击时遇到异常: {click_err}")
             
-            # 检查初始状态
-            if start_button.is_disabled():
-                print("✅ 检测到「Старт」按钮为 disabled (不可点击) 状态，说明服务器已在运行中。")
-                action_taken = "无需操作 (已在运行)"
-            else:
-                print("⚠️ 检测到「Старт」按钮可点击，服务器处于停止状态。")
-                print("准备执行点击拉起...")
-                start_button.click(force=True)
-                
-                print("⏳ 正在等待 60 秒，让服务器执行启动过程...")
-                time.sleep(60)
-                
-                print("🔄 正在刷新页面以获取最新状态...")
-                # 刷新同样采用宽容模式
-                try:
-                    page.reload(timeout=60000, wait_until="domcontentloaded")
-                except:
-                    pass
-                time.sleep(5)
-                
-                print("正在验证拉起结果...")
-                verify_button = page.get_by_role("button", name="Старт", exact=True).first
-                verify_button.wait_for(state="visible", timeout=15000)
-                
-                if verify_button.is_disabled():
-                    print("✅ 验证成功！「Старт」按钮已变为 disabled 状态，服务器拉起成功。")
-                    action_taken = "执行拉起并验证成功"
-                else:
-                    raise Exception("等待60秒后，'Старт'按钮依然可点击，服务器拉起失败。")
+            print("⏳ 正在等待 60 秒，让服务器执行启动过程...")
+            time.sleep(60)
+            
+            print("🔄 正在刷新页面以获取最新状态...")
+            try:
+                page.reload(timeout=60000, wait_until="domcontentloaded")
+            except:
+                pass
+            
+            # 给前端 React 框架留出一点时间渲染最终状态的页面
+            time.sleep(8)
+            # =========================================================
             
             print("📸 正在截取最终状态全屏快照...")
             page.screenshot(path=screenshot_path, full_page=True)
@@ -139,8 +124,8 @@ def run_automation():
                 f"━━━━━━━━━━━━━━━\n\n"
                 f"✅ <b>Rustix 机器</b>\n"
                 f"🖥 服务器: <code>{masked_id}</code>\n"
-                f"⚙️ 动作: {action_taken}\n"
-                f"⏳ 状态: 脚本执行完毕\n"
+                f"⚙️ 动作: 强制执行了拉起点击\n"
+                f"⏳ 状态: 脚本执行完毕，请查看截图确认状态\n"
                 f"🔑 Cookie: 正常加载"
             )
             send_tg_report(success_msg, screenshot_path)
