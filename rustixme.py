@@ -82,39 +82,45 @@ def run_automation():
             time.sleep(5) 
             
             # =========================================================
-            # 【代码修复与逻辑更新】处理双元素报错，并使用“Стоп”按钮作为判断依据
+            # 【逻辑重构】基于 Старт 按钮的精准拉起与闭环验证
             # =========================================================
-            print("正在查找「Стоп」按钮进行状态判断...")
+            print("正在查找「Старт」按钮进行状态判断...")
             
-            # 1. 定位 Stop 按钮。使用 exact=True 防止模糊匹配，使用 .first 防止严格模式报错
-            stop_button = page.get_by_role("button", name="Стоп", exact=True).first
+            # 定位 Start 按钮
+            start_button = page.get_by_role("button", name="Старт", exact=True).first
+            start_button.wait_for(state="visible", timeout=15000)
             
-            # 确保 Stop 按钮在页面上可见
-            stop_button.wait_for(state="visible", timeout=15000)
-            
-            # 2. 检查 Stop 按钮是否被 disabled
-            is_stop_disabled = stop_button.is_disabled()
             action_taken = ""
             
-            if is_stop_disabled:
-                print("⚠️ 检测到「Стоп」按钮为 disabled (不可点击) 状态，说明服务器已停止。")
-                print("准备定位「Старт」按钮并执行拉起...")
-                
-                # 定位 Start 按钮。同样使用 .first 解决 2 elements 的报错
-                start_button = page.get_by_role("button", name="Старт", exact=True).first
-                
-                # 执行点击
-                start_button.click(force=True)
-                action_taken = "执行了拉起操作"
-                print("✅ 已成功点击「Старт」按钮！")
-            else:
-                print("✅ 检测到「Стоп」按钮可用，说明服务器已经在运行中，无需拉起。")
+            # 检查初始状态
+            if start_button.is_disabled():
+                print("✅ 检测到「Старт」按钮为 disabled (不可点击) 状态，说明服务器已在运行中。")
                 action_taken = "无需操作 (已在运行)"
-
+            else:
+                print("⚠️ 检测到「Старт」按钮可点击，服务器处于停止状态。")
+                print("准备执行点击拉起...")
+                start_button.click(force=True)
+                
+                print("⏳ 正在等待 60 秒，让服务器执行启动过程...")
+                time.sleep(60)
+                
+                print("🔄 正在刷新页面以获取最新状态...")
+                page.reload()
+                page.wait_for_load_state('domcontentloaded')
+                time.sleep(5) # 给前端框架一点渲染时间
+                
+                print("正在验证拉起结果...")
+                # 重新定位刷新后的 Start 按钮
+                verify_button = page.get_by_role("button", name="Старт", exact=True).first
+                verify_button.wait_for(state="visible", timeout=15000)
+                
+                if verify_button.is_disabled():
+                    print("✅ 验证成功！「Старт」按钮已变为 disabled 状态，服务器拉起成功。")
+                    action_taken = "执行拉起并验证成功"
+                else:
+                    # 如果一分钟后按钮依然可点击，说明拉起失败，主动抛出异常进入报错流程
+                    raise Exception("等待60秒后，'Старт'按钮依然可点击，服务器拉起失败。")
             # =========================================================
-
-            print("⏳ 正在等待 60 秒，让服务器状态刷新...")
-            time.sleep(60)
             
             print("📸 正在截取最终状态全屏快照...")
             page.screenshot(path=screenshot_path, full_page=True)
