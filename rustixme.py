@@ -75,19 +75,27 @@ def run_automation():
 
         try:
             target_url = f"https://my.rustix.me/server/{SERVER_ID}/console"
-            page.goto(target_url, timeout=60000)
-            print(f"打开服务器页面: {target_url}")
+            print(f"准备打开服务器页面: {target_url}")
 
-            page.wait_for_load_state('domcontentloaded')
+            # =========================================================
+            # 【关键修改】更改加载等待策略，防止被长连接卡死导致超时
+            # wait_until="domcontentloaded": 只要 HTML 解析完毕就放行，不等待所有网络请求结束
+            # =========================================================
+            try:
+                page.goto(target_url, timeout=60000, wait_until="domcontentloaded")
+                print("✅ 页面基础结构加载成功！")
+            except Exception as goto_err:
+                print(f"⚠️ 页面 goto 阶段出现超时或异常，但也许 DOM 已经可用，尝试继续执行。异常信息: {goto_err}")
+
+            # 给前端 React/Vue 等框架留出一点时间渲染按钮
             time.sleep(5) 
             
-            # =========================================================
-            # 【逻辑重构】基于 Старт 按钮的精准拉起与闭环验证
-            # =========================================================
             print("正在查找「Старт」按钮进行状态判断...")
             
             # 定位 Start 按钮
             start_button = page.get_by_role("button", name="Старт", exact=True).first
+            
+            # 这里是真正判断页面是否有效加载的地方
             start_button.wait_for(state="visible", timeout=15000)
             
             action_taken = ""
@@ -105,12 +113,14 @@ def run_automation():
                 time.sleep(60)
                 
                 print("🔄 正在刷新页面以获取最新状态...")
-                page.reload()
-                page.wait_for_load_state('domcontentloaded')
-                time.sleep(5) # 给前端框架一点渲染时间
+                # 刷新同样采用宽容模式
+                try:
+                    page.reload(timeout=60000, wait_until="domcontentloaded")
+                except:
+                    pass
+                time.sleep(5)
                 
                 print("正在验证拉起结果...")
-                # 重新定位刷新后的 Start 按钮
                 verify_button = page.get_by_role("button", name="Старт", exact=True).first
                 verify_button.wait_for(state="visible", timeout=15000)
                 
@@ -118,9 +128,7 @@ def run_automation():
                     print("✅ 验证成功！「Старт」按钮已变为 disabled 状态，服务器拉起成功。")
                     action_taken = "执行拉起并验证成功"
                 else:
-                    # 如果一分钟后按钮依然可点击，说明拉起失败，主动抛出异常进入报错流程
                     raise Exception("等待60秒后，'Старт'按钮依然可点击，服务器拉起失败。")
-            # =========================================================
             
             print("📸 正在截取最终状态全屏快照...")
             page.screenshot(path=screenshot_path, full_page=True)
