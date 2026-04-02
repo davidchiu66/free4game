@@ -88,26 +88,41 @@ def run_automation():
             time.sleep(5) 
             
             # =========================================================
-            # 【优化】使用更稳健的过滤器定位，并采用拟真点击
+            # 【终极优化】三合一点击策略，破解 React/Vue 前端防御
             # =========================================================
             print("正在查找「Старт」按钮...")
             
-            # 使用包含文本的过滤器定位，无视前面的 SVG 图标和多余空格
             start_button = page.locator("button").filter(has_text=re.compile(r"Старт", re.IGNORECASE)).first
-            
-            # 确认按钮真正出现在屏幕上
             start_button.wait_for(state="visible", timeout=15000)
             print("✅ 成功定位到「Старт」按钮！")
             
-            print("▶️ 准备执行拟真拉起操作...")
+            print("▶️ 准备执行终极混合拉起操作...")
             try:
                 # 1. 确保按钮滚动到可视区域内
                 start_button.scroll_into_view_if_needed(timeout=5000)
                 time.sleep(1)
                 
-                # 2. 模拟真实用户的普通点击（移除 force=True，让浏览器触发正常的鼠标事件）
-                start_button.click(timeout=5000)
-                print("✅ 拟真点击指令已发送！")
+                # 策略 A：注入 JavaScript 原生触发 (最高权限，无视 CSS 遮挡)
+                print("   - 尝试 JS 原生点击...")
+                start_button.evaluate("node => node.click()")
+                time.sleep(0.5)
+                
+                # 策略 B：Playwright 底层事件分发 (唤醒 React 状态管理器)
+                print("   - 尝试触发底层 Click 事件...")
+                start_button.dispatch_event("click")
+                time.sleep(0.5)
+                
+                # 策略 C：物理坐标精准打击 (最像真人，对抗反爬虫)
+                print("   - 尝试物理鼠标坐标点击...")
+                box = start_button.bounding_box()
+                if box:
+                    # 获取按钮中心点坐标
+                    target_x = box["x"] + box["width"] / 2
+                    target_y = box["y"] + box["height"] / 2
+                    # 模拟真实的鼠标移动和点击（带 100 毫秒的按压延迟）
+                    page.mouse.click(target_x, target_y, delay=100)
+                
+                print("✅ 三合一终极点击指令已全部发送完毕！")
             except Exception as click_err:
                 print(f"⚠️ 点击时遇到异常: {click_err}")
             
@@ -132,7 +147,7 @@ def run_automation():
                 f"━━━━━━━━━━━━━━━\n\n"
                 f"✅ <b>Rustix 机器</b>\n"
                 f"🖥 服务器: <code>{masked_id}</code>\n"
-                f"⚙️ 动作: 执行了拟真拉起点击\n"
+                f"⚙️ 动作: 执行了三合一终极点击\n"
                 f"⏳ 状态: 脚本执行完毕，请查看截图确认状态\n"
                 f"🔑 Cookie: 正常加载"
             )
