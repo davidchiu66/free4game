@@ -1,6 +1,7 @@
 import os
 import time
 import requests
+import re
 from playwright.sync_api import sync_playwright
 
 # 获取环境变量
@@ -82,25 +83,33 @@ def run_automation():
                 page.goto(target_url, timeout=60000, wait_until="domcontentloaded")
                 print("✅ 页面基础结构加载成功！")
             except Exception as goto_err:
-                print(f"⚠️ 页面加载超时或异常，尝试继续执行: {goto_err}")
+                print(f"⚠️ 页面加载超时，尝试继续执行: {goto_err}")
 
             time.sleep(5) 
             
             # =========================================================
-            # 【极简逻辑】无条件强制点击 Старт 按钮
+            # 【优化】使用更稳健的过滤器定位，并采用拟真点击
             # =========================================================
             print("正在查找「Старт」按钮...")
             
-            start_button = page.get_by_role("button", name="Старт", exact=True).first
-            start_button.wait_for(state="visible", timeout=15000)
+            # 使用包含文本的过滤器定位，无视前面的 SVG 图标和多余空格
+            start_button = page.locator("button").filter(has_text=re.compile(r"Старт", re.IGNORECASE)).first
             
-            print("▶️ 执行无条件拉起策略，直接强制点击「Старт」按钮...")
+            # 确认按钮真正出现在屏幕上
+            start_button.wait_for(state="visible", timeout=15000)
+            print("✅ 成功定位到「Старт」按钮！")
+            
+            print("▶️ 准备执行拟真拉起操作...")
             try:
-                # force=True 会忽略按钮是否被遮挡或禁用，强行触发点击事件
-                start_button.click(force=True, timeout=5000)
-                print("✅ 强制点击指令已发送！")
+                # 1. 确保按钮滚动到可视区域内
+                start_button.scroll_into_view_if_needed(timeout=5000)
+                time.sleep(1)
+                
+                # 2. 模拟真实用户的普通点击（移除 force=True，让浏览器触发正常的鼠标事件）
+                start_button.click(timeout=5000)
+                print("✅ 拟真点击指令已发送！")
             except Exception as click_err:
-                print(f"⚠️ 强制点击时遇到异常: {click_err}")
+                print(f"⚠️ 点击时遇到异常: {click_err}")
             
             print("⏳ 正在等待 60 秒，让服务器执行启动过程...")
             time.sleep(60)
@@ -111,7 +120,6 @@ def run_automation():
             except:
                 pass
             
-            # 给前端 React 框架留出一点时间渲染最终状态的页面
             time.sleep(8)
             # =========================================================
             
@@ -124,7 +132,7 @@ def run_automation():
                 f"━━━━━━━━━━━━━━━\n\n"
                 f"✅ <b>Rustix 机器</b>\n"
                 f"🖥 服务器: <code>{masked_id}</code>\n"
-                f"⚙️ 动作: 强制执行了拉起点击\n"
+                f"⚙️ 动作: 执行了拟真拉起点击\n"
                 f"⏳ 状态: 脚本执行完毕，请查看截图确认状态\n"
                 f"🔑 Cookie: 正常加载"
             )
