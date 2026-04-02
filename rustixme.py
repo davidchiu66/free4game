@@ -87,44 +87,51 @@ def run_automation():
             time.sleep(5) 
             
             # =========================================================
-            # 【全新解法】键盘导航绕过鼠标拦截
+            # 【绝对拟真外挂逻辑】使用纯正的物理鼠标轨迹和按压
             # =========================================================
-            print("正在扫描页面上所有的「Старт」按钮...")
+            print("正在扫描桌面端英文「Start」按钮...")
             
-            start_buttons = page.locator("button").filter(has_text=re.compile(r"Старт", re.IGNORECASE)).all()
+            # 定位包含 "Start" 文本的按钮
+            start_button = page.locator("button").filter(has_text=re.compile(r"^Start$", re.IGNORECASE)).first
             
-            if not start_buttons:
-                print("⚠️ 警告：页面上没有找到任何包含「Старт」的按钮！")
+            # 如果没找到，尝试模糊匹配（以防有前后空格）
+            if not start_button.is_visible():
+                 start_button = page.locator("button").filter(has_text=re.compile(r"Start", re.IGNORECASE)).first
+
+            if not start_button.is_visible(timeout=10000):
+                print("⚠️ 警告：屏幕上没有找到可见的「Start」按钮！")
             else:
-                print(f"🔍 共发现 {len(start_buttons)} 个「Старт」按钮，准备执行键盘指令...")
-                
-                for i, btn in enumerate(start_buttons):
-                    try:
-                        if btn.is_visible(timeout=2000):
-                            print(f"▶️ 发现第 {i+1} 个可见按钮，应用键盘无障碍触发策略...")
-                            btn.scroll_into_view_if_needed(timeout=3000)
-                            time.sleep(1)
-                            
-                            # 1. 赋予元素系统焦点（关键步骤！）
-                            print("   - 强制赋予焦点 (Focus)...")
-                            btn.focus()
-                            time.sleep(0.5)
-                            
-                            # 2. 模拟真实用户的回车键
-                            print("   - 敲击 Enter 键...")
-                            page.keyboard.press("Enter")
-                            time.sleep(0.5)
-                            
-                            # 3. 模拟真实用户的空格键 (有些框架用空格触发按钮)
-                            print("   - 敲击 Space 空格键...")
-                            page.keyboard.press(" ")
-                            time.sleep(0.5)
-                            
-                            print(f"✅ 第 {i+1} 个按钮键盘指令发送完毕！")
-                        else:
-                            print(f"⏭️ 第 {i+1} 个按钮为隐藏状态，跳过。")
-                    except Exception as click_err:
-                        print(f"⚠️ 交互第 {i+1} 个按钮时遇到异常: {click_err}")
+                print("✅ 成功定位到可见的「Start」按钮！")
+                try:
+                    # 获取屏幕绝对坐标
+                    box = start_button.bounding_box()
+                    if box:
+                        # 计算按钮正中心的像素点
+                        target_x = box["x"] + box["width"] / 2
+                        target_y = box["y"] + box["height"] / 2
+                        
+                        print(f"▶️ 目标坐标锁定：X={target_x}, Y={target_y}。开始模拟人类手部动作...")
+                        
+                        # 1. 模拟鼠标平滑移动过去（产生鼠标滑过的事件流）
+                        page.mouse.move(target_x, target_y, steps=10)
+                        time.sleep(0.2)
+                        
+                        # 2. 模拟真实物理按下（鼠标左键）
+                        print("   - 鼠标按下 (Mousedown)...")
+                        page.mouse.down()
+                        
+                        # 3. 模拟人类手指停留的几十毫秒
+                        time.sleep(0.15) 
+                        
+                        # 4. 模拟真实物理抬起
+                        print("   - 鼠标抬起 (Mouseup)...")
+                        page.mouse.up()
+                        
+                        print("✅ 绝对物理拟真点击完成！")
+                    else:
+                        print("⚠️ 无法获取按钮的屏幕物理坐标。")
+                except Exception as click_err:
+                    print(f"⚠️ 物理点击时遇到异常: {click_err}")
             
             print("⏳ 正在等待 60 秒，让服务器执行启动过程...")
             time.sleep(60)
@@ -147,7 +154,7 @@ def run_automation():
                 f"━━━━━━━━━━━━━━━\n\n"
                 f"✅ <b>Rustix 机器</b>\n"
                 f"🖥 服务器: <code>{masked_id}</code>\n"
-                f"⚙️ 动作: 执行了键盘无障碍指令拉起\n"
+                f"⚙️ 动作: 执行了物理坐标平滑点击\n"
                 f"⏳ 状态: 脚本执行完毕，请查看截图确认状态\n"
                 f"🔑 Cookie: 正常加载"
             )
