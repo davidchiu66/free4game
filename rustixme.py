@@ -1,7 +1,6 @@
 import os
 import time
 import requests
-import re
 from playwright.sync_api import sync_playwright
 
 # 获取环境变量
@@ -78,66 +77,65 @@ def run_automation():
             target_url = f"https://my.rustix.me/server/{SERVER_ID}/console"
             print(f"准备打开服务器页面: {target_url}")
 
-            # =========================================================
-            # 【策略 1】深度等待：确保网页的 JS 完全加载并绑定完毕
-            # =========================================================
             try:
-                # 升级等待策略：等待到网络请求基本静止，确保前端框架就绪
-                page.goto(target_url, timeout=60000, wait_until="networkidle")
-                print("✅ 页面及所有后台脚本加载完成 (Network Idle)！")
+                page.goto(target_url, timeout=60000, wait_until="domcontentloaded")
+                print("✅ 页面基础结构加载成功！")
             except Exception as goto_err:
-                print(f"⚠️ 网络未完全静止，但可能已够用，尝试继续执行: {goto_err}")
+                print(f"⚠️ 页面加载超时，尝试继续执行: {goto_err}")
 
-            # 强行硬等待 5 秒，给前端留出最后的事件绑定时间
-            time.sleep(5) 
+            # 等待服务器状态文本出现，确保 WebSocket 和会话已完全就绪
+            print("等待获取当前服务器状态...")
+            page.locator("text=Offline").wait_for(state="visible", timeout=15000)
             
-            print("正在扫描「Start」按钮...")
-            start_button = page.locator("button").filter(has_text=re.compile(r"Start", re.IGNORECASE)).first
+            # =========================================================
+            # 【终极魔法】Pterodactyl 面板底层 API 直连注入
+            # =========================================================
+            print("▶️ UI点击被前端拦截，启动终极方案：直连底层 API 发送拉起指令...")
             
-            if not start_button.is_visible(timeout=10000):
-                print("⚠️ 警告：屏幕上没有找到可见的「Start」按钮！")
+            # 编写要在浏览器内部执行的 JS 代码
+            api_script = f"""
+                async () => {{
+                    // 1. 从浏览器原生环境中提取防伪造请求令牌 (XSRF-TOKEN)
+                    function getXsrfToken() {{
+                        const match = document.cookie.match(new RegExp('(^| )XSRF-TOKEN=([^;]+)'));
+                        return match ? decodeURIComponent(match[2]) : '';
+                    }}
+                    
+                    // 2. 直接调用 Pterodactyl 的官方电源管理 API
+                    const response = await fetch('/api/client/servers/{SERVER_ID}/power', {{
+                        method: 'POST',
+                        headers: {{
+                            'Accept': 'application/json',
+                            'Content-Type': 'application/json',
+                            'X-XSRF-TOKEN': getXsrfToken()
+                        }},
+                        body: JSON.stringify({{ signal: 'start' }})
+                    }});
+                    
+                    // 3. 返回 HTTP 状态码
+                    return response.status;
+                }}
+            """
+            
+            # 执行 JS 代码并获取返回的状态码
+            status_code = page.evaluate(api_script)
+            
+            if status_code == 204 or status_code == 200:
+                print(f"🎉 成功！底层 API 指令已下达，服务器正在拉起！(状态码: {status_code})")
             else:
-                print("✅ 成功定位到可见的「Start」按钮！")
-                
-                # =========================================================
-                # 【策略 2】机枪连发确认法：直到你真的生效为止
-                # =========================================================
-                print("▶️ 开始执行【轮询确认点击】策略...")
-                
-                max_attempts = 10
-                action_successful = False
-                
-                for attempt in range(1, max_attempts + 1):
-                    # 每次点击前先检查按钮是否已经因为上一秒的点击变成了 disabled
-                    if start_button.is_disabled():
-                        print(f"🎉 成功！在第 {attempt} 次检测时，发现按钮已变为 disabled。拉起请求已发送！")
-                        action_successful = True
-                        break
-                    
-                    print(f"   - 第 {attempt}/{max_attempts} 次尝试触发 Start...")
-                    try:
-                        # 确保按钮在视口内
-                        start_button.scroll_into_view_if_needed()
-                        
-                        # 使用简单的原生点击，因为现在的问题更可能是前端还没准备好
-                        start_button.click(force=True, timeout=3000)
-                    except Exception as click_err:
-                        print(f"     点击时遇到小问题 (忽略): {click_err}")
-                    
-                    # 每次点击后等待 3 秒，让前端有机会响应并改变按钮状态
-                    time.sleep(3)
-                
-                if not action_successful:
-                    print("⚠️ 警告：10 次尝试完毕，按钮依然处于可点击状态，前端极有可能彻底拦截了自动化点击。")
+                print(f"⚠️ API 指令已发送，但返回了异常状态码: {status_code}。请留意后续截图。")
             
-            print("⏳ 正在等待最终的 45 秒，让服务器执行启动过程...")
-            time.sleep(45)
+            # =========================================================
             
-            print("🔄 正在刷新页面以获取最终截图状态...")
+            print("⏳ 正在等待 60 秒，让服务器执行启动过程...")
+            time.sleep(60)
+            
+            print("🔄 正在刷新页面以获取最新状态...")
             try:
                 page.reload(timeout=60000, wait_until="domcontentloaded")
             except:
                 pass
+            
             time.sleep(8)
             
             print("📸 正在截取最终状态全屏快照...")
@@ -149,8 +147,8 @@ def run_automation():
                 f"━━━━━━━━━━━━━━━\n\n"
                 f"✅ <b>Rustix 机器</b>\n"
                 f"🖥 服务器: <code>{masked_id}</code>\n"
-                f"⚙️ 动作: 执行了轮询确认点击策略\n"
-                f"⏳ 状态: 脚本执行完毕，请查看截图确认最终状态\n"
+                f"⚙️ 动作: 底层 API 直连拉起 (状态码: {status_code})\n"
+                f"⏳ 状态: 脚本执行完毕，请查看截图确认状态\n"
                 f"🔑 Cookie: 正常加载"
             )
             send_tg_report(success_msg, screenshot_path)
