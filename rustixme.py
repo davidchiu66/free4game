@@ -64,7 +64,7 @@ def run_automation():
         )
         context = browser.new_context(
             user_agent=CUSTOM_USER_AGENT,
-            viewport={'width': 1280, 'height': 800}
+            viewport={'width': 1280, 'height': 800} # 这里定义了电脑端分辨率
         )
 
         if USER_COOKIES:
@@ -88,43 +88,42 @@ def run_automation():
             time.sleep(5) 
             
             # =========================================================
-            # 【终极优化】三合一点击策略，破解 React/Vue 前端防御
+            # 【破局逻辑】全域扫描，对所有可见的「Старт」按钮执行点击
             # =========================================================
-            print("正在查找「Старт」按钮...")
+            print("正在扫描页面上所有的「Старт」按钮...")
             
-            start_button = page.locator("button").filter(has_text=re.compile(r"Старт", re.IGNORECASE)).first
-            start_button.wait_for(state="visible", timeout=15000)
-            print("✅ 成功定位到「Старт」按钮！")
+            # 使用 .all() 获取所有匹配的按钮，而不是单纯的 .first
+            start_buttons = page.locator("button").filter(has_text=re.compile(r"Старт", re.IGNORECASE)).all()
             
-            print("▶️ 准备执行终极混合拉起操作...")
-            try:
-                # 1. 确保按钮滚动到可视区域内
-                start_button.scroll_into_view_if_needed(timeout=5000)
-                time.sleep(1)
+            if not start_buttons:
+                print("⚠️ 警告：页面上没有找到任何包含「Старт」的按钮！")
+            else:
+                print(f"🔍 共发现 {len(start_buttons)} 个「Старт」按钮，准备执行全覆盖点击...")
                 
-                # 策略 A：注入 JavaScript 原生触发 (最高权限，无视 CSS 遮挡)
-                print("   - 尝试 JS 原生点击...")
-                start_button.evaluate("node => node.click()")
-                time.sleep(0.5)
-                
-                # 策略 B：Playwright 底层事件分发 (唤醒 React 状态管理器)
-                print("   - 尝试触发底层 Click 事件...")
-                start_button.dispatch_event("click")
-                time.sleep(0.5)
-                
-                # 策略 C：物理坐标精准打击 (最像真人，对抗反爬虫)
-                print("   - 尝试物理鼠标坐标点击...")
-                box = start_button.bounding_box()
-                if box:
-                    # 获取按钮中心点坐标
-                    target_x = box["x"] + box["width"] / 2
-                    target_y = box["y"] + box["height"] / 2
-                    # 模拟真实的鼠标移动和点击（带 100 毫秒的按压延迟）
-                    page.mouse.click(target_x, target_y, delay=100)
-                
-                print("✅ 三合一终极点击指令已全部发送完毕！")
-            except Exception as click_err:
-                print(f"⚠️ 点击时遇到异常: {click_err}")
+                # 遍历所有找到的按钮
+                for i, btn in enumerate(start_buttons):
+                    try:
+                        # 只有当这个按钮真实渲染在屏幕上时，我们才去操作它
+                        if btn.is_visible(timeout=2000):
+                            print(f"▶️ 发现第 {i+1} 个按钮处于可见状态，正在执行拉起...")
+                            btn.scroll_into_view_if_needed(timeout=3000)
+                            time.sleep(1)
+                            
+                            # 物理点击
+                            box = btn.bounding_box()
+                            if box:
+                                page.mouse.click(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2, delay=150)
+                                time.sleep(0.5)
+                            
+                            # 原生点击与事件触发 (上双保险)
+                            btn.dispatch_event("click")
+                            btn.evaluate("node => node.click()")
+                            
+                            print(f"✅ 第 {i+1} 个按钮点击指令发送完毕！")
+                        else:
+                            print(f"⏭️ 第 {i+1} 个按钮属于隐藏状态 (可能是移动端菜单)，已跳过。")
+                    except Exception as click_err:
+                        print(f"⚠️ 点击第 {i+1} 个按钮时遇到异常: {click_err}")
             
             print("⏳ 正在等待 60 秒，让服务器执行启动过程...")
             time.sleep(60)
@@ -147,7 +146,7 @@ def run_automation():
                 f"━━━━━━━━━━━━━━━\n\n"
                 f"✅ <b>Rustix 机器</b>\n"
                 f"🖥 服务器: <code>{masked_id}</code>\n"
-                f"⚙️ 动作: 执行了三合一终极点击\n"
+                f"⚙️ 动作: 执行了全域混合拉起点击\n"
                 f"⏳ 状态: 脚本执行完毕，请查看截图确认状态\n"
                 f"🔑 Cookie: 正常加载"
             )
