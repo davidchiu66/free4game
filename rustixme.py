@@ -1,15 +1,19 @@
 import os
+import sys
 import time
-import requests
+import socket
 import urllib.parse
-import re
-from playwright.sync_api import sync_playwright
+import requests
+from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
 
 # =====================================================================
-# 环境变量获取
+# 1. 环境变量获取
 # =====================================================================
 SERVER_ID = os.environ.get("SERVER_ID", "未知服务器")
 SERVER_UUID = os.environ.get("SERVER_UUID", SERVER_ID) 
+SERVER_IP = os.environ.get("SERVER_IP", "f1.rustix.me")
+SERVER_PORT = int(os.environ.get("SERVER_PORT", 30460))
+
 TG_BOT_TOKEN = os.environ.get("TG_BOT_TOKEN")
 TG_CHAT_ID = os.environ.get("TG_CHAT_ID")
 USER_COOKIES = os.environ.get("USER_COOKIES")
@@ -17,7 +21,6 @@ USER_COOKIES = os.environ.get("USER_COOKIES")
 CUSTOM_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36"
 
 def parse_raw_cookies(raw_cookie_str: str, domain: str = "my.rustix.me") -> list:
-    """解析 Cookie 字符串供 Playwright 使用"""
     cookies_list = []
     if not raw_cookie_str:
         return cookies_list
@@ -29,13 +32,11 @@ def parse_raw_cookies(raw_cookie_str: str, domain: str = "my.rustix.me") -> list
     return cookies_list
 
 def mask_string(s: str) -> str:
-    """脱敏服务器 ID"""
     if not s or len(s) <= 4:
         return s
     return f"{s[:3]}****{s[-2:]}"
 
 def send_tg_report(caption_html: str, photo_path: str = None):
-    """推送战报到 Telegram"""
     if not TG_BOT_TOKEN or not TG_CHAT_ID:
         print("未配置 Telegram Token 或 Chat ID，跳过通知。")
         return
@@ -55,9 +56,39 @@ def send_tg_report(caption_html: str, photo_path: str = None):
     except Exception as e:
         print(f"❌ TG推送失败: {e}")
 
+# =====================================================================
+# 2. 前置 TCP 连通性探测
+# =====================================================================
+def check_server_port_status(ip: str, port: int, timeout: int = 5) -> bool:
+    """使用原生 Socket 探测端口，避免开启沉重的浏览器"""
+    try:
+        with socket.create_connection((ip, port), timeout=timeout):
+            return True
+    except (socket.timeout, ConnectionRefusedError, OSError):
+        return False
+
+# =====================================================================
+# 3. 核心 Playwright 自动化流程
+# =====================================================================
 def run_automation():
-    screenshot_path = "rustix_result.png"
     masked_id = mask_string(SERVER_ID)
+    
+    # ---------------------------------------------------------
+    # 阶段一：健康检查
+    # ---------------------------------------------------------
+    print(f"🔍 正在探测游戏服务器连通性: {SERVER_IP}:{SERVER_PORT}")
+    is_online = check_server_port_status(SERVER_IP, SERVER_PORT)
+    
+    if is_online:
+        print("🟢 服务器当前运行正常，端口已开放。直接退出任务，节省资源。")
+        sys.exit(0) # 正常退出，不发 TG 消息，不运行 Playwright
+        
+    print("🔴 探测失败，服务器处于停机状态！准备启动自动化拉起流程...")
+
+    # ---------------------------------------------------------
+    # 阶段二：启动浏览器并登录
+    # ---------------------------------------------------------
+    screenshot_path = "rustix_result.png"
     
     with sync_playwright() as p:
         browser = p.chromium.launch(
@@ -83,130 +114,111 @@ def run_automation():
 
         try:
             target_url = f"https://my.rustix.me/server/{SERVER_ID}/console"
-            print(f"准备打开服务器页面: {target_url}")
+            print(f"🌐 准备打开服务器控制台: {target_url}")
 
             try:
                 page.goto(target_url, timeout=60000, wait_until="domcontentloaded")
-                print("✅ 页面基础结构加载成功！")
-            except Exception as goto_err:
-                print(f"⚠️ 页面加载超时，尝试继续执行: {goto_err}")
+            except PlaywrightTimeoutError:
+                print("⚠️ 页面 DOM 加载超时，尝试继续强行注入...")
 
-            print("等待 8 秒，确保页面完全渲染并且 Cloudflare 验证通过...")
-            time.sleep(8) 
+            print("等待 5 秒，让 Cloudflare 盾牌可能存在的重定向完成...")
+            time.sleep(5) 
             
-            # =========================================================
-            # 步骤 1：探测服务器当前状态
-            # =========================================================
-            print("正在检测服务器当前运行状态...")
+            # ---------------------------------------------------------
+            # 阶段三：抗跳转重试注入
+            # ---------------------------------------------------------
+            print("=====================================================")
+            print("🚀 启动原生 API 注入 (带有重试装甲)")
+            print("=====================================================")
+            
+            api_script = f"""
+                async () => {{
+                    function getXsrfToken() {{
+                        const match = document.cookie.match(new RegExp('(^| )(?:X)?SRF-TOKEN=([^;]+)'));
+                        return match ? decodeURIComponent(match[2]) : '';
+                    }}
+                    try {{
+                        const response = await fetch('/api/client/servers/{SERVER_UUID}/power', {{
+                            method: 'POST',
+                            headers: {{
+                                'Accept': 'application/json',
+                                'Content-Type': 'application/json',
+                                'X-Requested-With': 'XMLHttpRequest',
+                                'X-XSRF-TOKEN': getXsrfToken()
+                            }},
+                            body: JSON.stringify({{ signal: 'start' }})
+                        }});
+                        return response.status;
+                    }} catch (e) {{
+                        return -1;
+                    }}
+                }}
+            """
+            
+            max_retries = 3
+            status_code = -1
             action_result = ""
-            is_already_running = False
             
-            # 使用正则兼容英文 Start 和俄文 Старт，并提取第一个匹配的按钮
-            start_button = page.locator("button").filter(has_text=re.compile(r"^(Start|Старт)$", re.IGNORECASE)).first
+            for attempt in range(max_retries):
+                try:
+                    print(f"尝试第 {attempt + 1}/{max_retries} 次注入拉起指令...")
+                    status_code = page.evaluate(api_script)
+                    
+                    if status_code in [200, 204]:
+                        print("🎉 成功！拉起指令已下达！")
+                        action_result = f"API 触发成功 (状态码: {status_code})"
+                        break # 成功则跳出循环
+                    else:
+                        print(f"⚠️ API 返回异常状态码: {status_code}")
+                        action_result = f"API 触发异常 (状态码: {status_code})"
+                        break # 返回了明确的状态码，说明注入没被销毁，不需要重试，直接跳出
+                        
+                except Exception as e:
+                    # 捕获 Execution context was destroyed 等异常
+                    print(f"⚠️ 第 {attempt + 1} 次注入失败，页面可能正在跳转。原因: {str(e).splitlines()[0]}")
+                    if attempt < max_retries - 1:
+                        print("等待 3 秒后重试...")
+                        time.sleep(3)
+                    else:
+                        action_result = "API 注入彻底失败 (上下文多次被销毁)"
+            
+            # ---------------------------------------------------------
+            # 阶段四：强行截图与推送
+            # ---------------------------------------------------------
+            print("⏳ 等待 30 秒，让服务器执行启动日志输出...")
+            time.sleep(30)
             
             try:
-                # 给一点时间寻找按钮
-                start_button.wait_for(state="attached", timeout=10000)
-                # 核心判断：如果 Start 按钮被禁用，说明服务器处于非停止状态
-                if start_button.is_disabled():
-                    is_already_running = True
-                    print("✅ 状态检测：服务器已在运行中 (Start 按钮不可点)。")
-                else:
-                    print("⚠️ 状态检测：服务器当前已停止 (Start 按钮可点)。")
-            except Exception:
-                print("⚠️ 状态检测：未找到明确的 Start 按钮，为确保万一，将默认执行拉起操作。")
-
-            # =========================================================
-            # 步骤 2：根据状态决定是否下发 API 指令
-            # =========================================================
-            if is_already_running:
-                action_result = "无需操作 (已在运行)"
-                print("⏭️ 跳过 API 注入，直接进入战报截图环节...")
-            else:
-                print("=====================================================")
-                print("🚀 启动原生 API 注入拉起")
-                print("=====================================================")
-                
-                api_script = f"""
-                    async () => {{
-                        function getXsrfToken() {{
-                            const match = document.cookie.match(new RegExp('(^| )(?:X)?SRF-TOKEN=([^;]+)'));
-                            return match ? decodeURIComponent(match[2]) : '';
-                        }}
-                        
-                        try {{
-                            const response = await fetch('/api/client/servers/{SERVER_UUID}/power', {{
-                                method: 'POST',
-                                headers: {{
-                                    'Accept': 'application/json',
-                                    'Content-Type': 'application/json',
-                                    'X-Requested-With': 'XMLHttpRequest',
-                                    'X-XSRF-TOKEN': getXsrfToken()
-                                }},
-                                body: JSON.stringify({{ signal: 'start' }})
-                            }});
-                            return response.status;
-                        }} catch (e) {{
-                            return -1;
-                        }}
-                    }}
-                """
-                
-                status_code = page.evaluate(api_script)
-                print(f"📡 注入 API 响应状态码: {status_code}")
-                
-                if status_code in [200, 204]:
-                    print("🎉 成功！拉起指令已下达！")
-                    action_result = f"API 触发成功 (状态码: {status_code})"
-                    
-                    print("⏳ 正在等待 45 秒，让服务器执行启动过程...")
-                    time.sleep(45)
-                    
-                    print("🔄 正在刷新页面以获取最新截图...")
-                    try:
-                        page.reload(timeout=60000, wait_until="domcontentloaded")
-                    except:
-                        pass
-                    time.sleep(8) 
-                else:
-                    print(f"⚠️ API 请求异常 (状态码: {status_code})")
-                    action_result = f"API 触发异常 (状态码: {status_code})"
-
-            # =========================================================
-            # 步骤 3：统一截图与通知
-            # =========================================================
-            print("📸 正在截取最终状态全屏快照...")
-            page.screenshot(path=screenshot_path, full_page=True)
+                print("📸 正在强行截取当前可视区域...")
+                # 修复超时点：去掉 full_page=True，并设置独立的强制 10 秒超时机制
+                page.screenshot(path=screenshot_path, timeout=10000)
+            except Exception as ss_err:
+                print(f"⚠️ 截图步骤被跳过或超时: {ss_err}")
+                screenshot_path = None # 如果截图失败，依然发送文字战报
             
             success_msg = (
                 f"🎁 <b>Rustix.me 拉起报告</b>\n\n"
-                f"✅ 成功: 1 ⏭ 跳过: 0 ❌ 失败: 0\n"
-                f"━━━━━━━━━━━━━━━\n\n"
                 f"✅ <b>Rustix 机器</b>\n"
                 f"🖥 服务器: <code>{masked_id}</code>\n"
                 f"⚙️ 动作: {action_result}\n"
-                f"⏳ 状态: 脚本执行完毕，请查看截图确认最终状态\n"
-                f"🔑 Cookie: 正常加载"
+                f"⏳ 状态: 脚本执行完毕，请查看截图确认最终状态"
             )
             send_tg_report(success_msg, screenshot_path)
 
         except Exception as e:
             error_details = str(e).split('\n')[0] 
-            print(f"\n❌ 自动化任务执行失败: {error_details}")
+            print(f"\n❌ 自动化任务发生致命崩溃: {error_details}")
             
             error_screenshot = "error.png"
             try:
-                page.screenshot(path=error_screenshot, full_page=True)
+                page.screenshot(path=error_screenshot, timeout=10000)
             except:
                 error_screenshot = None
 
             fail_msg = (
-                f"🎁 <b>Rustix.me 拉起报告</b>\n\n"
-                f"✅ 成功: 0 ⏭ 跳过: 0 ❌ 失败: 1\n"
-                f"━━━━━━━━━━━━━━━\n\n"
+                f"🎁 <b>Rustix.me 严重异常报告</b>\n\n"
                 f"❌ <b>Rustix 机器</b>\n"
                 f"🖥 服务器: <code>{masked_id}</code>\n"
-                f"⚠️ 状态: API 执行失败\n"
                 f"📝 原因: <code>{error_details}</code>" 
             )
             send_tg_report(fail_msg, error_screenshot)
