@@ -80,8 +80,16 @@ def run_automation():
     is_online = check_server_port_status(SERVER_IP, SERVER_PORT)
     
     if is_online:
-        print("🟢 服务器当前运行正常，端口已开放。直接退出任务，节省资源。")
-        sys.exit(0) # 正常退出，不发 TG 消息，不运行 Playwright
+        print("🟢 服务器当前运行正常，端口已开放。准备发送在线通知并退出。")
+        online_msg = (
+            f"🎁 <b>Rustix.me 运行状态报告</b>\n\n"
+            f"✅ <b>Rustix 机器</b>\n"
+            f"🖥 服务器: <code>{masked_id}</code>\n"
+            f"⚙️ 动作: TCP 探测正常 (免登录)\n"
+            f"🟢 状态: <b>运行中</b>"
+        )
+        send_tg_report(online_msg)
+        sys.exit(0) # 正常退出，不消耗后续的计算资源
         
     print("🔴 探测失败，服务器处于停机状态！准备启动自动化拉起流程...")
 
