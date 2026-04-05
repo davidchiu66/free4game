@@ -22,7 +22,7 @@ USER_COOKIES = os.environ.get("LEME_USER_COOKIES")
 
 CUSTOM_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36"
 
-def parse_raw_cookies(raw_cookie_str: str, domain: str = "my.rustix.me") -> list:
+def parse_raw_cookies(raw_cookie_str: str, domain: str = "lemehost.com") -> list:
     cookies_list = []
     if not raw_cookie_str:
         return cookies_list
@@ -84,8 +84,8 @@ def run_automation():
     if is_online:
         print("🟢 服务器当前运行正常，端口已开放。准备发送在线通知并退出。")
         online_msg = (
-            f"🎁 <b>Rustix.me 运行状态报告</b>\n\n"
-            f"✅ <b>Rustix 机器</b>\n"
+            f"🎁 <b>Lemehost 运行状态报告</b>\n\n"
+            f"✅ <b>Lemehost 机器</b>\n"
             f"🖥 服务器: <code>{masked_id}</code>\n"
             f"⚙️ 动作: TCP 探测正常 (免登录)\n"
             f"🟢 状态: <b>运行中</b>"
@@ -98,7 +98,7 @@ def run_automation():
     # ---------------------------------------------------------
     # 阶段二：启动浏览器并登录
     # ---------------------------------------------------------
-    screenshot_path = "rustix_result.png"
+    screenshot_path = "lemehost_result.png"
     
     with sync_playwright() as p:
         browser = p.chromium.launch(
@@ -123,7 +123,7 @@ def run_automation():
         page = context.new_page()
 
         try:
-            target_url = f"https://my.rustix.me/server/{SERVER_ID}/console"
+            target_url = f"https://lemehost.com/server/{SERVER_ID}/console"
             print(f"🌐 准备打开服务器控制台: {target_url}")
 
             try:
@@ -207,8 +207,8 @@ def run_automation():
                 screenshot_path = None # 如果截图失败，依然发送文字战报
             
             success_msg = (
-                f"🎁 <b>Rustix.me 拉起报告</b>\n\n"
-                f"✅ <b>Rustix 机器</b>\n"
+                f"🎁 <b>Lemehost 拉起报告</b>\n\n"
+                f"✅ <b>Lemehost 机器</b>\n"
                 f"🖥 服务器: <code>{masked_id}</code>\n"
                 f"⚙️ 动作: {action_result}\n"
                 f"⏳ 状态: 脚本执行完毕，请查看截图确认最终状态"
@@ -226,8 +226,8 @@ def run_automation():
                 error_screenshot = None
 
             fail_msg = (
-                f"🎁 <b>Rustix.me 严重异常报告</b>\n\n"
-                f"❌ <b>Rustix 机器</b>\n"
+                f"🎁 <b>Lemehost 严重异常报告</b>\n\n"
+                f"❌ <b>Lemehost 机器</b>\n"
                 f"🖥 服务器: <code>{masked_id}</code>\n"
                 f"📝 原因: <code>{error_details}</code>" 
             )
