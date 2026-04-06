@@ -2,7 +2,6 @@ import os
 import sys
 import time
 import socket
-import urllib.parse
 import requests
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
 
@@ -10,15 +9,13 @@ from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeo
 # 1. 环境变量获取
 # =====================================================================
 SERVER_ID = os.environ.get("LEME_SERVER_ID", "未知服务器")
-SERVER_UUID = os.environ.get("LEME_SERVER_UUID", SERVER_ID) 
+# 注意：UI 点击不再需要 SERVER_UUID，我们只需 SERVER_ID
 SERVER_IP = os.environ.get("SERVER_IP", "28.lemehost.com")
 SERVER_PORT = int(os.environ.get("SERVER_PORT", 17868))
 
 TG_BOT_TOKEN = os.environ.get("TG_BOT_TOKEN")
 TG_CHAT_ID = os.environ.get("TG_CHAT_ID")
 USER_COOKIES = os.environ.get("LEME_USER_COOKIES")
-
-# =====================================================================
 
 CUSTOM_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36"
 
@@ -48,12 +45,11 @@ def send_tg_report(caption_html: str, photo_path: str = None):
             data = {"chat_id": TG_CHAT_ID, "caption": caption_html, "parse_mode": "HTML"}
             with open(photo_path, "rb") as photo_file:
                 files = {"photo": photo_file}
-                response = requests.post(url, data=data, files=files)
+                requests.post(url, data=data, files=files).raise_for_status()
         else:
             url = f"https://api.telegram.org/bot{TG_BOT_TOKEN}/sendMessage"
             data = {"chat_id": TG_CHAT_ID, "text": caption_html, "parse_mode": "HTML"}
-            response = requests.post(url, data=data)
-        response.raise_for_status()
+            requests.post(url, data=data).raise_for_status()
         print("✅ TG推送成功")
     except Exception as e:
         print(f"❌ TG推送失败: {e}")
@@ -62,7 +58,6 @@ def send_tg_report(caption_html: str, photo_path: str = None):
 # 2. 前置 TCP 连通性探测
 # =====================================================================
 def check_server_port_status(ip: str, port: int, timeout: int = 5) -> bool:
-    """使用原生 Socket 探测端口，避免开启沉重的浏览器"""
     try:
         with socket.create_connection((ip, port), timeout=timeout):
             return True
@@ -70,18 +65,13 @@ def check_server_port_status(ip: str, port: int, timeout: int = 5) -> bool:
         return False
 
 # =====================================================================
-# 3. 核心 Playwright 自动化流程
+# 3. 核心 Playwright 自动化流程 (UI 点击模式)
 # =====================================================================
 def run_automation():
     masked_id = mask_string(SERVER_ID)
     
-    # ---------------------------------------------------------
-    # 阶段一：健康检查
-    # ---------------------------------------------------------
     print(f"🔍 正在探测游戏服务器连通性: {SERVER_IP}:{SERVER_PORT}")
-    is_online = check_server_port_status(SERVER_IP, SERVER_PORT)
-    
-    if is_online:
+    if check_server_port_status(SERVER_IP, SERVER_PORT):
         print("🟢 服务器当前运行正常，端口已开放。准备发送在线通知并退出。")
         online_msg = (
             f"🎁 <b>Lemehost 运行状态报告</b>\n\n"
@@ -91,13 +81,10 @@ def run_automation():
             f"🟢 状态: <b>运行中</b>"
         )
         send_tg_report(online_msg)
-        sys.exit(0) # 正常退出，不消耗后续的计算资源
+        sys.exit(0)
         
     print("🔴 探测失败，服务器处于停机状态！准备启动自动化拉起流程...")
 
-    # ---------------------------------------------------------
-    # 阶段二：启动浏览器并登录
-    # ---------------------------------------------------------
     screenshot_path = "lemehost_result.png"
     
     with sync_playwright() as p:
@@ -129,89 +116,57 @@ def run_automation():
             try:
                 page.goto(target_url, timeout=60000, wait_until="domcontentloaded")
             except PlaywrightTimeoutError:
-                print("⚠️ 页面 DOM 加载超时，尝试继续强行注入...")
+                print("⚠️ 页面 DOM 加载超时，尝试继续强行寻找按钮...")
 
-            print("等待 5 秒，让 Cloudflare 盾牌可能存在的重定向完成...")
-            time.sleep(5) 
+            print("等待 8 秒，让页面完全渲染...")
+            time.sleep(8) 
             
-            # ---------------------------------------------------------
-            # 阶段三：抗跳转重试注入
-            # ---------------------------------------------------------
+            # =========================================================
+            # 阶段三：UI 物理点击启动 (废弃 404 API)
+            # =========================================================
             print("=====================================================")
-            print("🚀 启动原生 API 注入 (带有重试装甲)")
+            print("🚀 启动纯 UI 模拟点击模式")
             print("=====================================================")
             
-            api_script = f"""
-                async () => {{
-                    function getXsrfToken() {{
-                        const match = document.cookie.match(new RegExp('(^| )(?:X)?SRF-TOKEN=([^;]+)'));
-                        return match ? decodeURIComponent(match[2]) : '';
-                    }}
-                    try {{
-                        const response = await fetch('/api/client/servers/{SERVER_UUID}/power', {{
-                            method: 'POST',
-                            headers: {{
-                                'Accept': 'application/json',
-                                'Content-Type': 'application/json',
-                                'X-Requested-With': 'XMLHttpRequest',
-                                'X-XSRF-TOKEN': getXsrfToken()
-                            }},
-                            body: JSON.stringify({{ signal: 'start' }})
-                        }});
-                        return response.status;
-                    }} catch (e) {{
-                        return -1;
-                    }}
-                }}
-            """
-            
-            max_retries = 3
-            status_code = -1
             action_result = ""
             
-            for attempt in range(max_retries):
-                try:
-                    print(f"尝试第 {attempt + 1}/{max_retries} 次注入拉起指令...")
-                    status_code = page.evaluate(api_script)
-                    
-                    if status_code in [200, 204]:
-                        print("🎉 成功！拉起指令已下达！")
-                        action_result = f"API 触发成功 (状态码: {status_code})"
-                        break # 成功则跳出循环
-                    else:
-                        print(f"⚠️ API 返回异常状态码: {status_code}")
-                        action_result = f"API 触发异常 (状态码: {status_code})"
-                        break # 返回了明确的状态码，说明注入没被销毁，不需要重试，直接跳出
-                        
-                except Exception as e:
-                    # 捕获 Execution context was destroyed 等异常
-                    print(f"⚠️ 第 {attempt + 1} 次注入失败，页面可能正在跳转。原因: {str(e).splitlines()[0]}")
-                    if attempt < max_retries - 1:
-                        print("等待 3 秒后重试...")
-                        time.sleep(3)
-                    else:
-                        action_result = "API 注入彻底失败 (上下文多次被销毁)"
+            # 精确锁定源码中的启动按钮
+            start_button = page.locator('button[data-state="start"]')
             
-            # ---------------------------------------------------------
-            # 阶段四：强行截图与推送
-            # ---------------------------------------------------------
-            print("⏳ 等待 30 秒，让服务器执行启动日志输出...")
+            try:
+                # 给一点时间等待按钮出现在 DOM 中
+                start_button.wait_for(state="attached", timeout=10000)
+                
+                # 检查按钮是否被禁用 (如果已经在运行或启动中，按钮通常是不可点击的)
+                if start_button.is_disabled():
+                    print("✅ 状态检测：服务器已在运行中或正在启动 (Start 按钮不可点)。")
+                    action_result = "无需操作 (Start按钮已禁用)"
+                else:
+                    print("🖱️ 发现 Start 按钮处于可点状态，正在执行鼠标左键物理点击...")
+                    start_button.click(force=True)
+                    action_result = "UI 点击 Start 按钮成功"
+                    print("🎉 成功！点击指令已下达！")
+            except Exception as e:
+                print(f"⚠️ 未能找到可用的 Start 按钮或点击失败: {e}")
+                action_result = "UI 触发异常 (未找到Start按钮)"
+
+            # 等待启动过程
+            print("⏳ 等待 30 秒，准备获取执行结果...")
             time.sleep(30)
             
             try:
                 print("📸 正在强行截取当前可视区域...")
-                # 修复超时点：去掉 full_page=True，并设置独立的强制 10 秒超时机制
                 page.screenshot(path=screenshot_path, timeout=10000)
             except Exception as ss_err:
                 print(f"⚠️ 截图步骤被跳过或超时: {ss_err}")
-                screenshot_path = None # 如果截图失败，依然发送文字战报
+                screenshot_path = None
             
             success_msg = (
                 f"🎁 <b>Lemehost 拉起报告</b>\n\n"
                 f"✅ <b>Lemehost 机器</b>\n"
                 f"🖥 服务器: <code>{masked_id}</code>\n"
                 f"⚙️ 动作: {action_result}\n"
-                f"⏳ 状态: 脚本执行完毕，请查看截图确认最终状态"
+                f"⏳ 状态: 脚本执行完毕，请查看截图确认"
             )
             send_tg_report(success_msg, screenshot_path)
 
