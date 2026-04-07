@@ -1,5 +1,6 @@
 import os
 import requests
+import time
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
 
 # ============================================================
@@ -73,7 +74,6 @@ def main():
         send_tg_message("❌ <b>登录任务中止</b>\n原因：未在环境变量中读取到 OPTIK_COOKIE。")
         return
 
-    # 将截图文件名改为更通用的名字
     screenshot_file = "result_screenshot.png"
 
     with sync_playwright() as p:
@@ -93,10 +93,14 @@ def main():
 
         try:
             print(f"🌐 正在访问目标网址: {TARGET_URL}")
-            # 访问首页，等待网络处于空闲状态，确保页面加载完毕
-            page.goto(TARGET_URL, timeout=30000, wait_until="networkidle")
+            
+            # --- 修复点 1：放宽等待条件，并延长最大超时时间到 60 秒 ---
+            page.goto(TARGET_URL, timeout=60000, wait_until="load")
+            
+            # --- 修复点 2：页面加载触发后，额外硬性等待 3 秒，确保现代网页的 JS 渲染出画面 ---
+            page.wait_for_timeout(3000)
 
-            # --- 修改点：页面加载完毕后，无论成败先截取屏幕 ---
+            # 无论成败先截取屏幕
             page.screenshot(path=screenshot_file)
             
             # --- 校验登录是否成功 ---
@@ -118,18 +122,20 @@ def main():
                     f"<b>当前 URL</b>：<code>{current_url}</code>\n"
                     "<b>详情</b>：请查看附带的网页截图确认运行状态。"
                 )
-                # 修改点：成功时也传入截图文件路径
                 send_tg_message(success_msg, screenshot_file)
 
         except PlaywrightTimeoutError:
             # 捕获页面加载超时的特定异常
-            page.screenshot(path=screenshot_file)
+            try:
+                page.screenshot(path=screenshot_file)
+            except:
+                pass
             timeout_msg = (
                 "🔴 <b>Optiklink 登录失败</b>\n\n"
-                "<b>原因</b>：页面加载超时（超过 30 秒）。\n"
+                "<b>原因</b>：页面加载依然超时（超过 60 秒）。\n"
                 "<b>详情</b>：请查看附带的超时截图。"
             )
-            send_tg_message(timeout_msg, screenshot_file)
+            send_tg_message(timeout_msg, screenshot_file if os.path.exists(screenshot_file) else None)
 
         except Exception as e:
             # 捕获其他任何未预料的系统错误
