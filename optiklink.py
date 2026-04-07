@@ -82,7 +82,7 @@ def main():
         # 创建一个独立的浏览器上下文，并设置 User-Agent
         context = browser.new_context(
             user_agent=USER_AGENT,
-            viewport={'width': 1280, 'height': 800}
+            viewport={'width': 1920, 'height': 1080}
         )
 
         # 注入我们解析好的 Cookie
