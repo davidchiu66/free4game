@@ -54,8 +54,13 @@ def inject_cookies(driver: Driver, raw_cookie_str: str, target_domain: str):
         if hasattr(driver, 'add_cookies'): 
             driver.add_cookies(cookies_list)
         else:
+            # 严格修复：恢复字典键值访问
             for c in cookies_list:
-                driver.run_js(f"document.cookie = '{c}={c}; domain={c}; path={c}';")
+                c_name = c
+                c_value = c
+                c_domain = c
+                c_path = c
+                driver.run_js(f"document.cookie = '{c_name}={c_value}; domain={c_domain}; path={c_path}';")
         print(f"✅ {target_domain} Cookie 预加载完毕！")
     except Exception as e:
         print(f"⚠️ {target_domain} Cookie 注入异常: {e}")
@@ -89,7 +94,7 @@ class BusterExtension:
 @browser(
     headless=False, 
     window_size=(1920, 1080),
-    # 🚨 语法修复点：已在此处补全合法的插件加载列表！
+    # 🚨 语法修复点：精确传入插件列表
     extensions=
 )
 def g4free_renewal_task(driver: Driver, data):
@@ -109,8 +114,9 @@ def g4free_renewal_task(driver: Driver, data):
 
         if "login" in driver.current_url.lower():
             print("⚠️ 主站 Cookie 失效，启动账号密码兜底登录...")
-            driver.type('input, input', ACCOUNT)
-            driver.type('input, input', PASSWORD)
+            # 修复选择器
+            driver.type('input', ACCOUNT)
+            driver.type('input', PASSWORD)
             driver.click('button')
             driver.sleep(8)
             if "login" in driver.current_url.lower():
@@ -120,14 +126,18 @@ def g4free_renewal_task(driver: Driver, data):
 
         # 【步骤二：拟人化点击 Renew】
         print("🔍 尝试自然点击 'Renew' 按钮...")
+        # 严格修复：补全 数组索引
         js_click_renew = """
         var links = document.querySelectorAll('a');
         for (var i = 0; i < links.length; i++) {
-            if ((links.innerText || links.textContent).includes('Renew')) {
+            var text = links.innerText || links.textContent;
+            if (text && text.includes('Renew')) {
                 links.removeAttribute('target');
-                links.click(); return true;
+                links.click();
+                return true;
             }
-        } return false;
+        } 
+        return false;
         """
         if not driver.run_js(js_click_renew):
             driver.save_screenshot(screenshot_name)
@@ -140,11 +150,14 @@ def g4free_renewal_task(driver: Driver, data):
         js_click_panel = """
         var links = document.querySelectorAll('a');
         for (var i = 0; i < links.length; i++) {
-            if ((links.innerText || links.textContent).trim().toLowerCase() === 'panel') {
+            var text = links.innerText || links.textContent;
+            if (text && text.trim().toLowerCase() === 'panel') {
                 links.removeAttribute('target');
-                links.click(); return true;
+                links.click();
+                return true;
             }
-        } return false;
+        } 
+        return false;
         """
         if not driver.run_js(js_click_panel):
             driver.save_screenshot(screenshot_name)
@@ -165,9 +178,11 @@ def g4free_renewal_task(driver: Driver, data):
             var text = links.innerText || links.textContent;
             var href = links.getAttribute('href') || "";
             if ((text && text.includes('Console')) || href.endsWith('/console')) {
-                links.click(); return true;
+                links.click();
+                return true;
             }
-        } return false;
+        } 
+        return false;
         """
         if not driver.run_js(js_click_console):
             driver.save_screenshot(screenshot_name)
@@ -186,10 +201,13 @@ def g4free_renewal_task(driver: Driver, data):
         js_click_add = """
         var btns = document.querySelectorAll('button');
         for (var i = 0; i < btns.length; i++) {
-            if ((btns.innerText || btns.textContent).toLowerCase().includes('add 90 minutes')) {
-                btns.click(); return true;
+            var text = btns.innerText || btns.textContent;
+            if (text && text.toLowerCase().includes('add 90 minutes')) {
+                btns.click();
+                return true;
             }
-        } return false;
+        } 
+        return false;
         """
         
         if driver.run_js(js_click_add):
