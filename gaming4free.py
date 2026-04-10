@@ -12,7 +12,6 @@ PASSWORD = os.environ.get("G4FREE_PASSWORD", "")
 TG_BOT_TOKEN = os.environ.get("TG_BOT_TOKEN", "")
 TG_CHAT_ID = os.environ.get("TG_CHAT_ID", "")
 
-LOGIN_URL = "https://gaming4free.net/login"
 DASHBOARD_URL = "https://gaming4free.net/dashboard"
 
 # ============================================================
@@ -42,12 +41,11 @@ def send_tg_message(text: str, photo_path: str = None):
 # 3. 辅助函数：Cookie 注入
 # ============================================================
 def inject_cookies(driver: Driver, raw_cookie_str: str, target_domain: str):
-    """将原生 Cookie 字符串转化为 Botasaurus 支持的格式并注入指定域名"""
+    """将原生 Cookie 字符串注入指定域名"""
     if not raw_cookie_str: 
         return
     print(f"🍪 正在解析并注入 {target_domain} 的 Cookie...")
     
-    # 访问目标域名下的无效路径，以初始化该域名的 Cookie 环境
     driver.get(f"https://{target_domain}/404_init_cookie") 
     
     cookies_list = []
@@ -81,12 +79,12 @@ def g4free_renewal_task(driver: Driver, data):
         if G4FREE_COOKIE:
             inject_cookies(driver, G4FREE_COOKIE, "gaming4free.net")
 
-        print(f"🌐 访问主站控制台面板: {DASHBOARD_URL}")
+        print(f"🌐 访问主站 Dashboard: {DASHBOARD_URL}")
         driver.get(DASHBOARD_URL)
-        driver.sleep(5)
+        driver.sleep(6)
 
         if "login" in driver.current_url.lower():
-            print("⚠️ 主站 Cookie 失效，启动账号密码自动兜底登录...")
+            print("⚠️ 主站 Cookie 失效，启动账号密码兜底登录...")
             driver.type('input[type="email"], input[name="email"]', ACCOUNT)
             driver.type('input[type="password"], input[name="password"]', PASSWORD)
             driver.click('button[type="submit"]')
@@ -97,16 +95,13 @@ def g4free_renewal_task(driver: Driver, data):
                 send_tg_message("🔴 <b>主站兜底登录失败</b>\n请检查账号密码或查看截图。", screenshot_real_path)
                 return
 
-        # 【阶段二：拟人化点击 Renew 按钮】
+        # 【阶段二：拟人化点击 Renew 按钮前往主站中间页】
         print("🔍 正在扫描并尝试自然点击 'Renew' 按钮...")
-        
-        # 核心优化：使用 JS 找到按钮，移除新标签页属性，并触发真实的点击事件
         js_click_renew = """
         var links = document.querySelectorAll('a');
         for (var i = 0; i < links.length; i++) {
             var text = links[i].innerText || links[i].textContent;
             if (text && text.includes('Renew')) {
-                // 关键防拦截技巧：移除 target="_blank"，迫使链接在当前标签页打开
                 links[i].removeAttribute('target');
                 links[i].click();
                 return true;
@@ -114,21 +109,40 @@ def g4free_renewal_task(driver: Driver, data):
         }
         return false;
         """
-        renew_clicked = driver.run_js(js_click_renew)
-        
-        if not renew_clicked:
+        if not driver.run_js(js_click_renew):
             driver.save_screenshot(screenshot_name)
-            send_tg_message("🔴 <b>异常拦截</b>\n在 Dashboard 未找到 'Renew' 按键，或页面未加载完成。", screenshot_real_path)
+            send_tg_message("🔴 <b>异常拦截</b>\n在 Dashboard 未找到 'Renew' 按键。", screenshot_real_path)
             return
             
-        print("🚀 已模拟真实用户点击 Renew，等待页面自然跳转至服务器总览...")
-        # 给予充足的时间等待页面自然加载完成
+        print("🚀 已点击 Renew，等待中间过渡页加载...")
         driver.sleep(10)
 
-        # 【阶段三：在总览页面拟人化点击 Console 进入终端】
+        # 【阶段二点五 (新增)：在中间页拟人化点击 Panel 按钮前往面板】
+        print("🔗 正在寻找并自然点击 'Panel' 按钮...")
+        js_click_panel = """
+        var links = document.querySelectorAll('a');
+        for (var i = 0; i < links.length; i++) {
+            var text = links[i].innerText || links[i].textContent;
+            // 精确匹配 Panel 文字
+            if (text && text.trim().toLowerCase() === 'panel') {
+                // 关键：移除 target="_blank"，避免弹窗丢失会话
+                links[i].removeAttribute('target');
+                links[i].click();
+                return true;
+            }
+        }
+        return false;
+        """
+        if not driver.run_js(js_click_panel):
+            driver.save_screenshot(screenshot_name)
+            send_tg_message("🔴 <b>页面结构异常</b>\n在中间页未能找到 'Panel' 按钮，请核实截图。", screenshot_real_path)
+            return
+            
+        print("🚀 已点击 Panel，等待 Pterodactyl 真实面板加载...")
+        driver.sleep(10)
+
+        # 【阶段三：在真实面板中拟人化点击 Console 进入终端】
         print("🖥️ 正在寻找并自然点击 Console 终端入口...")
-        
-        # 同样使用 JS 触发真实点击
         js_click_console = """
         var links = document.querySelectorAll('a');
         for (var i = 0; i < links.length; i++) {
@@ -141,15 +155,12 @@ def g4free_renewal_task(driver: Driver, data):
         }
         return false;
         """
-        console_clicked = driver.run_js(js_click_console)
-        
-        if not console_clicked:
-            # 加入双重判定，防止页面加载慢导致的误判
+        if not driver.run_js(js_click_console):
             driver.save_screenshot(screenshot_name)
-            send_tg_message("🔴 <b>页面结构异常</b>\n跳转后未能找到 Console 按钮，可能是遇到了二次验证拦截，请核实截图。", screenshot_real_path)
+            send_tg_message("🔴 <b>页面结构异常</b>\n在 Panel 页面未能找到 Console 按钮，可能遭遇二次拦截。", screenshot_real_path)
             return
             
-        print("⏳ 已触发 Console 点击，等待终端面板加载...")
+        print("⏳ 已触发 Console 点击，等待终端加载...")
         driver.sleep(8)
 
         # 【阶段四：点击加时与处理 Cloudflare 及广告】
@@ -165,9 +176,7 @@ def g4free_renewal_task(driver: Driver, data):
         }
         return false;
         """
-        btn_clicked = driver.run_js(js_click_add)
-
-        if btn_clicked:
+        if driver.run_js(js_click_add):
             driver.sleep(3) 
             
             if driver.is_element_present("iframe[src*='turnstile'], iframe[src*='cloudflare']"):
@@ -193,7 +202,7 @@ def g4free_renewal_task(driver: Driver, data):
             driver.save_screenshot(screenshot_name)
             msg = (
                 "🟢 <b>G4Free 续期任务完成！</b>\n\n"
-                "通过标准流程安全进入控制台，广告等待与刷新已执行完毕。\n"
+                "通过标准人类点击流安全进入控制台，广告等待与刷新已执行完毕。\n"
                 f"⏱️ <b>最新剩余时长：</b><code>{final_time}</code>"
             )
             send_tg_message(msg, screenshot_real_path)
