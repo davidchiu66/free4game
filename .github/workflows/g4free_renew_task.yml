@@ -86,5 +86,6 @@ jobs:
           G4FREE_PASSWORD: ${{ secrets.G4FREE_PASSWORD }}
           TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+          BUSTER_EXTENSION_PATH: ${{ github.workspace }}/extensions/buster/unpacked
         # 使用 xvfb-run 将 Python 脚本包裹在虚拟显示器中运行
         run: xvfb-run -a python gaming4free.py
