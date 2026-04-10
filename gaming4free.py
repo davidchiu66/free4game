@@ -12,6 +12,7 @@ ACCOUNT = os.environ.get("G4FREE_ACCOUNT", "")
 PASSWORD = os.environ.get("G4FREE_PASSWORD", "")
 TG_BOT_TOKEN = os.environ.get("TG_BOT_TOKEN", "")
 TG_CHAT_ID = os.environ.get("TG_CHAT_ID", "")
+BUSTER_EXTENSION_PATH = os.environ.get("BUSTER_EXTENSION_PATH", "")
 
 DASHBOARD_URL = "https://gaming4free.net/dashboard"
 
@@ -103,7 +104,6 @@ class BusterExtension:
 @browser(
     headless=False,
     window_size=(1920, 1080),
-    # 🚨 语法修复点：精确传入插件列表
     extensions=[],
 )
 def g4free_renewal_task(driver: Driver, data):
@@ -111,6 +111,11 @@ def g4free_renewal_task(driver: Driver, data):
     screenshot_real_path = os.path.join("output", "screenshots", screenshot_name)
 
     try:
+        if BUSTER_EXTENSION_PATH and os.path.exists(BUSTER_EXTENSION_PATH):
+            print("🛡️ 加载 Buster 插件...")
+            driver.install_extension(BUSTER_EXTENSION_PATH)
+            driver.sleep(2)
+
         # 【全域预加载与登录过渡】
         if G4FREE_PANEL_COOKIE:
             inject_cookies(driver, G4FREE_PANEL_COOKIE, "panel.gaming4free.net")
