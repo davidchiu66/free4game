@@ -97,41 +97,38 @@ def g4free_renewal_task(driver: Driver, data):
                 send_tg_message("🔴 <b>主站兜底登录失败</b>\n请检查账号密码或查看截图。", screenshot_real_path)
                 return
 
-        # 【阶段二：提取 Renew 链接并前往服务器总览页】
-        print("🔍 正在扫描服务器续期链接...")
-        js_find_link = """
+        # 【阶段二：拟人化点击 Renew 按钮】
+        print("🔍 正在扫描并尝试自然点击 'Renew' 按钮...")
+        
+        # 核心优化：使用 JS 找到按钮，移除新标签页属性，并触发真实的点击事件
+        js_click_renew = """
         var links = document.querySelectorAll('a');
         for (var i = 0; i < links.length; i++) {
             var text = links[i].innerText || links[i].textContent;
             if (text && text.includes('Renew')) {
-                return links[i].getAttribute('href');
+                // 关键防拦截技巧：移除 target="_blank"，迫使链接在当前标签页打开
+                links[i].removeAttribute('target');
+                links[i].click();
+                return true;
             }
         }
-        return null;
+        return false;
         """
-        renew_href = driver.run_js(js_find_link)
+        renew_clicked = driver.run_js(js_click_renew)
         
-        if not renew_href:
+        if not renew_clicked:
             driver.save_screenshot(screenshot_name)
-            send_tg_message("🔴 <b>异常拦截</b>\n在 Dashboard 未找到 'Renew' 按键。", screenshot_real_path)
-            return
-
-        # 提取 Server ID，构造【总览页面】URL
-        server_match = re.search(r'/server/([a-zA-Z0-9]+)', renew_href)
-        if server_match:
-            server_id = server_match.group(1)
-            overview_url = f"https://panel.gaming4free.net/server/{server_id}"
-        else:
-            driver.save_screenshot(screenshot_name)
-            send_tg_message(f"🔴 <b>路径解析失败</b>\n无法从链接 {renew_href} 提取 ID。", screenshot_real_path)
+            send_tg_message("🔴 <b>异常拦截</b>\n在 Dashboard 未找到 'Renew' 按键，或页面未加载完成。", screenshot_real_path)
             return
             
-        print(f"🚀 跳转至服务器总览页面: {overview_url}")
-        driver.get(overview_url)
-        driver.sleep(8)
+        print("🚀 已模拟真实用户点击 Renew，等待页面自然跳转至服务器总览...")
+        # 给予充足的时间等待页面自然加载完成
+        driver.sleep(10)
 
-        # 【阶段三：在总览页面点击 Console 进入终端】
-        print("🖥️ 正在寻找并点击 Console 终端入口...")
+        # 【阶段三：在总览页面拟人化点击 Console 进入终端】
+        print("🖥️ 正在寻找并自然点击 Console 终端入口...")
+        
+        # 同样使用 JS 触发真实点击
         js_click_console = """
         var links = document.querySelectorAll('a');
         for (var i = 0; i < links.length; i++) {
@@ -147,11 +144,12 @@ def g4free_renewal_task(driver: Driver, data):
         console_clicked = driver.run_js(js_click_console)
         
         if not console_clicked:
+            # 加入双重判定，防止页面加载慢导致的误判
             driver.save_screenshot(screenshot_name)
-            send_tg_message("🔴 <b>页面结构异常</b>\n在服务器总览页面未能找到 Console 按钮，请核实截图。", screenshot_real_path)
+            send_tg_message("🔴 <b>页面结构异常</b>\n跳转后未能找到 Console 按钮，可能是遇到了二次验证拦截，请核实截图。", screenshot_real_path)
             return
             
-        print("⏳ 等待 Console 面板加载...")
+        print("⏳ 已触发 Console 点击，等待终端面板加载...")
         driver.sleep(8)
 
         # 【阶段四：点击加时与处理 Cloudflare 及广告】
