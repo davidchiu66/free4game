@@ -95,7 +95,7 @@ class BusterExtension:
     headless=False, 
     window_size=(1920, 1080),
     # 🚨 语法修复点：精确传入插件列表
-    extensions=
+    extensions=[]
 )
 def g4free_renewal_task(driver: Driver, data):
     screenshot_name = "g4free_status.png"
