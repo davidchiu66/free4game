@@ -1,0 +1,34 @@
+name: Gaming4Free 自动续期
+
+on:
+  workflow_dispatch: # 保留手动触发按钮，方便你随时测试代码
+  schedule:
+    - cron: '0 * * * *' # 标准 Cron 语法：每小时的第 0 分钟执行一次
+
+jobs:
+  renew-server:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install Dependencies
+        # 沿用我们之前测试出最稳定的 Botasaurus 版本
+        run: |
+          pip install botasaurus==4.0.97 requests==2.31.0
+
+      - name: Run G4Free Renewal Script
+        env:
+          # 将 GitHub Secrets 映射到环境变量，供 Python 脚本读取
+          G4FREE_USER_COOKIE: ${{ secrets.G4FREE_USER_COOKIE }}
+          G4FREE_ACCOUNT: ${{ secrets.G4FREE_ACCOUNT }}
+          G4FREE_PASSWORD: ${{ secrets.G4FREE_PASSWORD }}
+          TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
+          TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+        # 请确保这里的 python 文件名与你实际创建的文件名一致
+        run: python gaming4free.py
