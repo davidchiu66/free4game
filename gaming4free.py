@@ -123,9 +123,13 @@ def g4free_renewal_task(driver: Driver, data):
 
         if "login" in driver.current_url.lower():
             print("⚠️ 主站 Cookie 失效，启动账号密码兜底登录...")
-            # 修复选择器
-            driver.type("input", ACCOUNT)
-            driver.type("input", PASSWORD)
+            driver.type(
+                "input[type='email'], input[name='email'], input:first-of-type", ACCOUNT
+            )
+            driver.type(
+                "input[type='password'], input[name='password'], input:nth-of-type(2)",
+                PASSWORD,
+            )
             driver.click("button")
             driver.sleep(8)
             if "login" in driver.current_url.lower():
