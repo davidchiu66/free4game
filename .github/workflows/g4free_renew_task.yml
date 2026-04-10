@@ -1,87 +1,80 @@
 name: Gaming4Free 自动续期
 
 on:
-  workflow_dispatch: # 保留手动触发按钮，方便你随时测试代码
+  workflow_dispatch: # 允许在 GitHub 网页上手动点击运行按钮进行测试
   schedule:
-    - cron: '0 * * * *' # 标准 Cron 语法：每小时的第 0 分钟执行一次
+    - cron: '0 * * * *' # 设置为每小时的第 0 分钟执行一次 (根据需要自行调整)
 
 jobs:
   renew-server:
     runs-on: ubuntu-latest
+    timeout-minutes: 15 # 防止死循环，设置最大超时时间为 15 分钟
+
     steps:
+      # ==========================================
+      # 1. 获取仓库代码
+      # ==========================================
       - name: Checkout Code
         uses: actions/checkout@v4
 
       # ==========================================
-      # 🌟 新增：挂载 Cloudflare WARP 网络，伪装高信誉 IP
+      # 2. 挂载 WARP 网络 (提升 IP 信誉，降低验证码难度)
       # ==========================================
       - name: Setup WARP
         uses: fscarmen/warp-on-actions@v1.3
         with:
           stack: dual
           mode: client
-          
-      # ... 后面的保持不变 ...
-      - name: Setup Python 3.10
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.10'
-          
-      # =========================
-      # 🟡  调试 IP
-      # =========================
-      - name: Check IP
-        run: |
-          echo "🌍 当前 IP:"
-          curl -s https://api.ipify.org
-          echo
-          curl -s https://ipinfo.io
-      steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
 
       # ==========================================
-      # 🌟 1. 安装虚拟声卡、虚拟显示器与基础工具
+      # 3. 安装硬件伪装依赖 (虚拟屏幕 & 虚拟声卡)
       # ==========================================
-      - name: Install Audio & Display Deps
+      - name: Install Audio & Display Dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y xvfb wget unzip curl p7zip-full pulseaudio alsa-utils ffmpeg
-          
-          # 启动虚拟声卡，骗过浏览器的音频硬件检测
+
+          # 启动虚拟声卡，骗过浏览器的音频硬件检测，激活 reCAPTCHA 语音模式
           pulseaudio --start --exit-idle-time=-1 || true
           pactl load-module module-null-sink sink_name=virtual_speaker || true
           pactl set-default-sink virtual_speaker || true
 
+      # ==========================================
+      # 4. 配置 Python 环境与 Botasaurus 框架
+      # ==========================================
       - name: Setup Python 3.10
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
 
-      - name: Install Dependencies
+      - name: Install Python Dependencies
         run: |
           pip install botasaurus==4.0.97 requests==2.31.0
 
       # ==========================================
-      # 🌟 2. 下载并解压 Buster 破解插件
+      # 5. 下载并解压 Buster AI 语音破解插件
       # ==========================================
       - name: Download & Extract Buster Plugin
         run: |
           mkdir -p extensions/buster
+          # 下载 Buster 3.1.0 版本
           wget -O extensions/buster/buster.zip https://github.com/dessant/buster/releases/download/v3.1.0/buster_captcha_solver_for_humans-3.1.0-chrome.zip
           mkdir -p extensions/buster/unpacked
+          # 使用 7z 解压插件到指定目录，供后续 Python 脚本挂载
           7z x -y extensions/buster/buster.zip -oextensions/buster/unpacked
+          echo "📦 Buster 插件解压完毕"
 
       # ==========================================
-      # 🌟 3. 使用虚拟显示器 (xvfb) 运行脚本
+      # 6. 运行核心续期脚本 (注入环境变量与虚拟显示)
       # ==========================================
       - name: Run G4Free Renewal Script
         env:
+          # 映射 GitHub Secrets 到系统环境变量
           G4FREE_USER_COOKIE: ${{ secrets.G4FREE_USER_COOKIE }}
           G4FREE_PANEL_COOKIE: ${{ secrets.G4FREE_PANEL_COOKIE }}
           G4FREE_ACCOUNT: ${{ secrets.G4FREE_ACCOUNT }}
           G4FREE_PASSWORD: ${{ secrets.G4FREE_PASSWORD }}
           TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
-        # xvfb-run -a 可以让有头浏览器在没有真实显示器的服务器上完美运行！
-        run: xvfb-run -a python gaming4free.py   
+        # 使用 xvfb-run 将 Python 脚本包裹在虚拟显示器中运行
+        run: xvfb-run -a python gaming4free.py
