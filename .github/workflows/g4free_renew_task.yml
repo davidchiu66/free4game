@@ -26,20 +26,62 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
+          
+      # =========================
+      # 🟡  调试 IP
+      # =========================
+      - name: Check IP
+        run: |
+          echo "🌍 当前 IP:"
+          curl -s https://api.ipify.org
+          echo
+          curl -s https://ipinfo.io
+      steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      # ==========================================
+      # 🌟 1. 安装虚拟声卡、虚拟显示器与基础工具
+      # ==========================================
+      - name: Install Audio & Display Deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb wget unzip curl p7zip-full pulseaudio alsa-utils ffmpeg
+          
+          # 启动虚拟声卡，骗过浏览器的音频硬件检测
+          pulseaudio --start --exit-idle-time=-1 || true
+          pactl load-module module-null-sink sink_name=virtual_speaker || true
+          pactl set-default-sink virtual_speaker || true
+
+      - name: Setup Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
 
       - name: Install Dependencies
-        # 沿用我们之前测试出最稳定的 Botasaurus 版本
         run: |
           pip install botasaurus==4.0.97 requests==2.31.0
 
+      # ==========================================
+      # 🌟 2. 下载并解压 Buster 破解插件
+      # ==========================================
+      - name: Download & Extract Buster Plugin
+        run: |
+          mkdir -p extensions/buster
+          wget -O extensions/buster/buster.zip https://github.com/dessant/buster/releases/download/v3.1.0/buster_captcha_solver_for_humans-3.1.0-chrome.zip
+          mkdir -p extensions/buster/unpacked
+          7z x -y extensions/buster/buster.zip -oextensions/buster/unpacked
+
+      # ==========================================
+      # 🌟 3. 使用虚拟显示器 (xvfb) 运行脚本
+      # ==========================================
       - name: Run G4Free Renewal Script
         env:
-          # 将 GitHub Secrets 映射到环境变量，供 Python 脚本读取
           G4FREE_USER_COOKIE: ${{ secrets.G4FREE_USER_COOKIE }}
           G4FREE_PANEL_COOKIE: ${{ secrets.G4FREE_PANEL_COOKIE }}
           G4FREE_ACCOUNT: ${{ secrets.G4FREE_ACCOUNT }}
           G4FREE_PASSWORD: ${{ secrets.G4FREE_PASSWORD }}
           TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
-        # 请确保这里的 python 文件名与你实际创建的文件名一致
-        run: python gaming4free.py
+        # xvfb-run -a 可以让有头浏览器在没有真实显示器的服务器上完美运行！
+        run: xvfb-run -a python gaming4free.py   
