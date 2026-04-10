@@ -12,6 +12,16 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
+      # ==========================================
+      # 🌟 新增：挂载 Cloudflare WARP 网络，伪装高信誉 IP
+      # ==========================================
+      - name: Setup WARP
+        uses: fscarmen/warp-on-actions@v1.3
+        with:
+          stack: dual
+          mode: client
+          
+      # ... 后面的保持不变 ...
       - name: Setup Python 3.10
         uses: actions/setup-python@v5
         with:
