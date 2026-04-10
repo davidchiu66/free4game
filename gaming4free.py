@@ -136,7 +136,7 @@ def g4free_renewal_task(driver: Driver, data):
         if not driver.run_js(js_click_panel):
             driver.save_screenshot(screenshot_name)
             send_tg_message("🔴 <b>页面结构异常</b>\n在中间页未能找到 'Panel' 按钮，请核实截图。", screenshot_real_path)
-            return
+            // return
             
         print("🚀 已点击 Panel，等待 Pterodactyl 真实面板加载...")
         driver.sleep(10)
