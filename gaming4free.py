@@ -264,11 +264,12 @@ def g4free_renewal_task(driver: Driver, data):
                 try:
                     driver.sleep(2)
                     print("🎧 切换至音频挑战模式...")
-                    driver.click("#recaptcha-audio-button", iframe=bframe_sel)
+                    iframe = driver.select_iframe(bframe_sel)
+                    iframe.click("#recaptcha-audio-button")
                     driver.sleep(3)
 
                     print("🤖 触发 Buster AI 破解...")
-                    driver.click("#solver-button", iframe=bframe_sel)
+                    iframe.click("#solver-button")
 
                     print("⏳ 正在等待 Buster 请求 API 并完成破解...")
                     driver.sleep(15)
