@@ -3,27 +3,32 @@ import re
 import requests
 from botasaurus.browser import browser, Driver
 
-# [1. 环境变量配置] (保持不变)
+# ============================================================
+# 1. 环境变量配置
+# ============================================================
 G4FREE_COOKIE = os.environ.get("G4FREE_USER_COOKIE", "")
 G4FREE_PANEL_COOKIE = os.environ.get("G4FREE_PANEL_COOKIE", "") 
 ACCOUNT = os.environ.get("G4FREE_ACCOUNT", "")
 PASSWORD = os.environ.get("G4FREE_PASSWORD", "")
 TG_BOT_TOKEN = os.environ.get("TG_BOT_TOKEN", "")
 TG_CHAT_ID = os.environ.get("TG_CHAT_ID", "")
+
 DASHBOARD_URL = "https://gaming4free.net/dashboard"
 
-# [2. 辅助函数] (保持不变)
+# ============================================================
+# 2. 辅助函数合集 (TG推送、Cookie注入、时间解析)
+# ============================================================
 def send_tg_message(text: str, photo_path: str = None):
     if not TG_BOT_TOKEN or not TG_CHAT_ID:
         return
     try:
         if photo_path and os.path.exists(photo_path):
             url = f"https://api.telegram.org/bot{TG_BOT_TOKEN}/sendPhoto"
-            data = {"chat_id": TG_CHAT_ID, "caption": f"🎮 [G4Free 助手]\n{text}", "parse_mode": "HTML"}
+            data = {"chat_id": TG_CHAT_ID, "caption": f"🎮\n{text}", "parse_mode": "HTML"}
             with open(photo_path, "rb") as f: requests.post(url, data=data, files={"photo": f}, timeout=30)
         else:
             url = f"https://api.telegram.org/bot{TG_BOT_TOKEN}/sendMessage"
-            data = {"chat_id": TG_CHAT_ID, "text": f"🎮 [G4Free 助手]\n{text}", "parse_mode": "HTML"}
+            data = {"chat_id": TG_CHAT_ID, "text": f"🎮\n{text}", "parse_mode": "HTML"}
             requests.post(url, data=data, timeout=30)
     except Exception as e:
         print(f"❌ Telegram 发送失败: {e}")
@@ -31,11 +36,11 @@ def send_tg_message(text: str, photo_path: str = None):
 def inject_cookies(driver: Driver, raw_cookie_str: str, target_domain: str):
     if not raw_cookie_str: return
     driver.get(f"https://{target_domain}/404_init_cookie") 
-    cookies_list = [{"name": pair.strip().split('=', 1)[0], "value": pair.strip().split('=', 1)[1], "domain": target_domain, "path": "/"} for pair in raw_cookie_str.split(';') if '=' in pair]
+    cookies_list =, "value": pair.strip().split('=', 1)[cite: 1], "domain": target_domain, "path": "/"} for pair in raw_cookie_str.split(';') if '=' in pair]
     try:
         if hasattr(driver, 'add_cookies'): driver.add_cookies(cookies_list)
         else:
-            for c in cookies_list: driver.run_js(f"document.cookie = '{c['name']}={c['value']}; domain={c['domain']}; path={c['path']}';")
+            for c in cookies_list: driver.run_js(f"document.cookie = '{c}={c}; domain={c}; path={c}';")
     except Exception as e: print(f"⚠️ Cookie 注入异常: {e}")
 
 def get_total_minutes(time_str: str) -> int:
@@ -45,18 +50,31 @@ def get_total_minutes(time_str: str) -> int:
     return (int(h_match.group(1)) if h_match else 0) * 60 + (int(m_match.group(1)) if m_match else 0)
 
 # ============================================================
+# 🚨 核心修复点：使用鸭子类型伪装成 Botasaurus Extension 对象
+# ============================================================
+class BusterExtension:
+    """提供 Botasaurus 底层需要的 .load() 方法，平滑绕过验证参数"""
+    def __init__(self, path):
+        # 强制转换为操作系统的绝对路径，确保无头浏览器能精准找到解压的插件
+        self.path = os.path.abspath(path)
+
+    def load(self, with_command_line_option=False):
+        # 当 Botasaurus 遍历到这里时，返回绝对路径给它
+        return self.path
+
+# ============================================================
 # 3. 核心业务流程：G4Free 续期任务 (带 Buster 破盾能力)
 # ============================================================
-# 🚨 核心改动：必须关闭 headless，并挂载解压后的 Buster 插件目录
 @browser(
     headless=False, 
     window_size=(1920, 1080),
-    extensions=["extensions/buster/unpacked"] 
+    # 🚨 将之前的纯字符串替换为我们刚刚写的包装类实例
+    extensions= 
 )
 def g4free_renewal_task(driver: Driver, data):
     screenshot_name = "g4free_status.png"
     screenshot_real_path = os.path.join("output", "screenshots", screenshot_name)
-    
+       
     try:
         # 【全域预加载与登录过渡】
         if G4FREE_PANEL_COOKIE: inject_cookies(driver, G4FREE_PANEL_COOKIE, "panel.gaming4free.net")
