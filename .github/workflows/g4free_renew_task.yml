@@ -26,6 +26,7 @@ jobs:
         env:
           # 将 GitHub Secrets 映射到环境变量，供 Python 脚本读取
           G4FREE_USER_COOKIE: ${{ secrets.G4FREE_USER_COOKIE }}
+          G4FREE_PANEL_COOKIE: ${{ secrets.G4FREE_PANEL_COOKIE }}
           G4FREE_ACCOUNT: ${{ secrets.G4FREE_ACCOUNT }}
           G4FREE_PASSWORD: ${{ secrets.G4FREE_PASSWORD }}
           TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
