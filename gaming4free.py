@@ -86,35 +86,44 @@ def get_total_minutes(time_str: str) -> int:
 
 
 # ============================================================
-# 3. 核心修复：Buster 插件伪装类
+# 3. Buster 本地扩展加载类
 # ============================================================
 class BusterExtension:
-    """提供 Botasaurus 底层需要的 .load() 方法，平滑加载插件"""
+    """加载本地 Buster 扩展"""
 
-    def __init__(self, path):
-        self.path = os.path.abspath(path)
+    def __init__(self, extension_path):
+        self.extension_path = os.path.abspath(extension_path)
 
-    def load(self, with_command_line_option=False):
-        return self.path
+    def load(self, with_command_line_option=True):
+        if with_command_line_option:
+            return f"--load-extension={self.extension_path}"
+        return self.extension_path
+
+    @property
+    def extension_absolute_path(self):
+        return self.extension_path
 
 
 # ============================================================
 # 4. 核心业务流程：G4Free 续期任务 (带 Buster 破盾能力)
 # ============================================================
+def get_extensions():
+    if BUSTER_EXTENSION_PATH and os.path.exists(BUSTER_EXTENSION_PATH):
+        return [BusterExtension(BUSTER_EXTENSION_PATH)]
+    return []
+
+
 @browser(
     headless=False,
     window_size=(1920, 1080),
-    extensions=[],
+    extensions=get_extensions(),
 )
 def g4free_renewal_task(driver: Driver, data):
     screenshot_name = "g4free_status.png"
     screenshot_real_path = os.path.join("output", "screenshots", screenshot_name)
 
     try:
-        if BUSTER_EXTENSION_PATH and os.path.exists(BUSTER_EXTENSION_PATH):
-            print("🛡️ 加载 Buster 插件...")
-            driver.install_extension(BUSTER_EXTENSION_PATH)
-            driver.sleep(2)
+        print("🛡️ Buster 插件已通过 browser 扩展加载")
 
         # 【全域预加载与登录过渡】
         if G4FREE_PANEL_COOKIE:
