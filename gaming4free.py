@@ -172,12 +172,13 @@ def g4free_renewal_task(driver: Driver, data):
         driver.sleep(8)
 
         # 【阶段五：点击加时与处理广告】
-        print("👆 准备点击 'Add 90 Minutes'...")
+        print("👆 准备查找并自然点击 'Add 90 Minutes' 按钮...")
         js_click_add = """
         var btns = document.querySelectorAll('button');
         for (var i = 0; i < btns.length; i++) {
             var text = btns[i].innerText || btns[i].textContent;
-            if (text && text.includes('Add 90 Minutes')) {
+            // 核心修复：统一转换为小写后比对，彻底无视前端 CSS 大小写渲染的干扰
+            if (text && text.toLowerCase().includes('add 90 minutes')) {
                 btns[i].click();
                 return true;
             }
@@ -200,6 +201,7 @@ def g4free_renewal_task(driver: Driver, data):
             driver.sleep(8)
             
             html_source = driver.page_html
+            # 根据你提供的源码，依然可以使用正则提取
             match = re.search(r'suspended.*?in\s*<strong[^>]*>(.*?)</strong>', html_source, re.IGNORECASE | re.DOTALL)
             final_time = match.group(1).strip() if match else "未知"
             
@@ -209,7 +211,7 @@ def g4free_renewal_task(driver: Driver, data):
             
         else:
             driver.save_screenshot(screenshot_name)
-            send_tg_message("🔴 <b>异常拦截</b>\n未找到加时按钮。", screenshot_real_path)
+            send_tg_message("🔴 <b>异常拦截</b>\n未找到加时按钮，请检查截图核实。", screenshot_real_path)
 
     except Exception as e:
         driver.save_screenshot(screenshot_name)
