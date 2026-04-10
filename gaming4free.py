@@ -4,10 +4,9 @@ import requests
 from botasaurus.browser import browser, Driver
 
 # ============================================================
-# 1. 环境变量配置
+# 1. 环境变量配置 (关联 GitHub Secrets)
 # ============================================================
 G4FREE_COOKIE = os.environ.get("G4FREE_USER_COOKIE", "")
-# 【恢复】控制台面板专属 Cookie，必须重新添加回 Secrets
 G4FREE_PANEL_COOKIE = os.environ.get("G4FREE_PANEL_COOKIE", "") 
 ACCOUNT = os.environ.get("G4FREE_ACCOUNT", "")
 PASSWORD = os.environ.get("G4FREE_PASSWORD", "")
@@ -17,9 +16,10 @@ TG_CHAT_ID = os.environ.get("TG_CHAT_ID", "")
 DASHBOARD_URL = "https://gaming4free.net/dashboard"
 
 # ============================================================
-# 2. 辅助函数：Telegram 推送
+# 2. 辅助函数合集
 # ============================================================
 def send_tg_message(text: str, photo_path: str = None):
+    """发送图文消息至 Telegram 进行实时监控"""
     if not TG_BOT_TOKEN or not TG_CHAT_ID:
         print("⚠️ 未配置 Telegram Token 或 Chat ID，跳过消息推送。")
         return
@@ -37,10 +37,8 @@ def send_tg_message(text: str, photo_path: str = None):
     except Exception as e:
         print(f"❌ Telegram 发送失败: {e}")
 
-# ============================================================
-# 3. 辅助函数：跨域 Cookie 注入
-# ============================================================
 def inject_cookies(driver: Driver, raw_cookie_str: str, target_domain: str):
+    """跨域 Cookie 预热与注入，打通会话隔离"""
     if not raw_cookie_str: 
         return
     print(f"🍪 正在初始化并预加载 {target_domain} 的环境...")
@@ -64,8 +62,20 @@ def inject_cookies(driver: Driver, raw_cookie_str: str, target_domain: str):
     except Exception as e:
         print(f"⚠️ {target_domain} Cookie 注入异常: {e}")
 
+def get_total_minutes(time_str: str) -> int:
+    """将文本时间转换为纯数字总分钟数以便数学运算"""
+    if not time_str or time_str == "未知":
+        return 0
+    h_match = re.search(r'(\d+)\s*hour', time_str, re.IGNORECASE)
+    m_match = re.search(r'(\d+)\s*minute', time_str, re.IGNORECASE)
+    
+    hours = int(h_match.group(1)) if h_match else 0
+    minutes = int(m_match.group(1)) if m_match else 0
+    
+    return hours * 60 + minutes
+
 # ============================================================
-# 4. 核心任务：G4Free 续期逻辑
+# 3. 核心业务流程：G4Free 续期任务
 # ============================================================
 @browser(headless=True, window_size=(1920, 1080))
 def g4free_renewal_task(driver: Driver, data):
@@ -73,17 +83,13 @@ def g4free_renewal_task(driver: Driver, data):
     screenshot_real_path = os.path.join("output", "screenshots", screenshot_name)
     
     try:
-        # 【阶段〇：全域 Cookie 前置预加载】
-        # 必须在进入工作流之前，把两个域名的门票都买好
+        # 【前置】全域 Cookie 预加载
         if G4FREE_PANEL_COOKIE:
             inject_cookies(driver, G4FREE_PANEL_COOKIE, "panel.gaming4free.net")
-        else:
-            print("⚠️ 警告：未配置 G4FREE_PANEL_COOKIE，稍后跨域时极大概率被图形验证码拦截！")
-
         if G4FREE_COOKIE:
             inject_cookies(driver, G4FREE_COOKIE, "gaming4free.net")
 
-        # 【阶段一：进入主站与状态核验】
+        # 【步骤一】登录主站
         print(f"🌐 访问主站 Dashboard: {DASHBOARD_URL}")
         driver.get(DASHBOARD_URL)
         driver.sleep(6)
@@ -99,116 +105,117 @@ def g4free_renewal_task(driver: Driver, data):
                 send_tg_message("🔴 <b>主站兜底登录失败</b>\n请检查账号密码。", screenshot_real_path)
                 return
 
-        # 【阶段二：拟人化点击 Renew 前往过渡页】
-        print("🔍 正在扫描并自然点击 'Renew' 按钮...")
+        # 【步骤二】拟人化过渡
+        print("🔍 尝试自然点击 'Renew' 按钮...")
         js_click_renew = """
         var links = document.querySelectorAll('a');
         for (var i = 0; i < links.length; i++) {
-            var text = links[i].innerText || links[i].textContent;
-            if (text && text.includes('Renew')) {
+            if ((links[i].innerText || links[i].textContent).includes('Renew')) {
                 links[i].removeAttribute('target');
-                links[i].click();
-                return true;
+                links[i].click(); return true;
             }
-        }
-        return false;
+        } return false;
         """
         if not driver.run_js(js_click_renew):
             driver.save_screenshot(screenshot_name)
             send_tg_message("🔴 <b>异常拦截</b>\n在 Dashboard 未找到 Renew 按钮。", screenshot_real_path)
             return
-            
-        print("🚀 已点击 Renew，等待过渡页加载...")
         driver.sleep(10)
 
-        # 【阶段三：拟人化点击 Panel 前往真实面板】
-        print("🔗 正在寻找并自然点击 'Panel' 按钮...")
+        # 【步骤三】面板过渡
+        print("🔗 尝试自然点击 'Panel' 按钮...")
         js_click_panel = """
         var links = document.querySelectorAll('a');
         for (var i = 0; i < links.length; i++) {
-            var text = links[i].innerText || links[i].textContent;
-            if (text && text.trim().toLowerCase() === 'panel') {
+            if ((links[i].innerText || links[i].textContent).trim().toLowerCase() === 'panel') {
                 links[i].removeAttribute('target');
-                links[i].click();
-                return true;
+                links[i].click(); return true;
             }
-        }
-        return false;
+        } return false;
         """
         if not driver.run_js(js_click_panel):
             driver.save_screenshot(screenshot_name)
             send_tg_message("🔴 <b>页面结构异常</b>\n未找到 Panel 按钮。", screenshot_real_path)
             return
-            
-        print("🚀 已点击 Panel，等待 Pterodactyl 面板加载...")
         driver.sleep(10)
 
-        # 【阶段三点五：核验是否成功带状态跨域】
         if "login" in driver.current_url.lower():
             driver.save_screenshot(screenshot_name)
-            send_tg_message("🔴 <b>面板跨域认证失败</b>\n虽已模拟点击，但面板 Cookie 失效或未配置，被二次登录/验证码拦截。", screenshot_real_path)
+            send_tg_message("🔴 <b>面板跨域认证失败</b>\n虽已模拟点击，但面板 Cookie 失效或被图形验证码拦截。", screenshot_real_path)
             return
 
-        # 【阶段四：点击 Console 进入终端】
-        print("🖥️ 正在寻找并自然点击 Console 终端入口...")
+        # 【步骤四】终端过渡
+        print("🖥️ 尝试自然点击 Console 终端入口...")
         js_click_console = """
         var links = document.querySelectorAll('a');
         for (var i = 0; i < links.length; i++) {
             var text = links[i].innerText || links[i].textContent;
             var href = links[i].getAttribute('href') || "";
             if ((text && text.includes('Console')) || href.endsWith('/console')) {
-                links[i].click();
-                return true;
+                links[i].click(); return true;
             }
-        }
-        return false;
+        } return false;
         """
         if not driver.run_js(js_click_console):
             driver.save_screenshot(screenshot_name)
             send_tg_message("🔴 <b>页面异常</b>\n在 Panel 页面未找到 Console。", screenshot_real_path)
             return
-            
-        print("⏳ 等待终端加载...")
         driver.sleep(8)
 
-        # 【阶段五：点击加时与处理广告】
-        print("👆 准备查找并自然点击 'Add 90 Minutes' 按钮...")
+        # 【步骤五】防欺骗续期核心逻辑
+        print("⏱️ 正在获取加时前的初始时间...")
+        html_source_before = driver.page_html
+        match_before = re.search(r'suspended.*?in\s*<strong[^>]*>(.*?)</strong>', html_source_before, re.IGNORECASE | re.DOTALL)
+        time_before = match_before.group(1).strip() if match_before else "未知"
+        minutes_before = get_total_minutes(time_before)
+        
+        print("👆 准备查找并点击 'Add 90 Minutes'...")
         js_click_add = """
         var btns = document.querySelectorAll('button');
         for (var i = 0; i < btns.length; i++) {
-            var text = btns[i].innerText || btns[i].textContent;
-            if (text && text.toLowerCase().includes('add 90 minutes')) {
-                btns[i].click();
-                return true;
+            if ((btns[i].innerText || btns[i].textContent).toLowerCase().includes('add 90 minutes')) {
+                btns[i].click(); return true;
             }
-        }
-        return false;
+        } return false;
         """
+        
         if driver.run_js(js_click_add):
-            driver.sleep(6) 
-            
-            # 如果弹出复杂的 reCAPTCHA 或 Turnstile，给予更长的时间让底层或代理去尝试绕过
+            driver.sleep(3) 
             if driver.is_element_present("iframe[src*='turnstile'], iframe[src*='recaptcha'], iframe[src*='cloudflare']"):
-                print("🛡️ 检测到验证盾 (reCAPTCHA/Cloudflare)，正在等待底层环境或代理处理...")
-                # 延长等待时间，防止在验证码还没处理完时代码就往下走了
-                driver.sleep(20) 
+                print("🛡️ 检测到图形验证码盾！如果机房 IP 信誉差极可能导致加时失败...")
+                driver.sleep(15) 
                 
-            print("📺 开始等待广告播放 (90 秒)...")
+            print("📺 开始等待广告播放或验证码处理 (90 秒)...")
             driver.sleep(90)
 
-            print("🔄 广告结束，正在通过底层 JS 执行双重刷新...")
-            # 【修复点】：使用原生 JavaScript 进行页面刷新，彻底解决 attribute 报错
+            print("🔄 等待结束，执行原生底层双重刷新...")
             driver.run_js("location.reload(true);")
             driver.sleep(6)
             driver.run_js("location.reload(true);")
             driver.sleep(8)
             
-            html_source = driver.page_html
-            match = re.search(r'suspended.*?in\s*<strong[^>]*>(.*?)</strong>', html_source, re.IGNORECASE | re.DOTALL)
-            final_time = match.group(1).strip() if match else "未知"
+            html_source_after = driver.page_html
+            match_after = re.search(r'suspended.*?in\s*<strong[^>]*>(.*?)</strong>', html_source_after, re.IGNORECASE | re.DOTALL)
+            time_after = match_after.group(1).strip() if match_after else "未知"
+            minutes_after = get_total_minutes(time_after)
             
             driver.save_screenshot(screenshot_name)
-            msg = f"🟢 <b>G4Free 续期操作完成！</b>\n\n已执行点击和刷新操作。\n⏱️ <b>抓取到的最新时长：</b><code>{final_time}</code>"
+            
+            # 【最终审判】计算时差
+            if minutes_after > minutes_before + 30:
+                msg = (
+                    "🟢 <b>G4Free 续期成功！</b>\n\n"
+                    "时间已发生真实增长，加时操作成功生效！\n"
+                    f"⏱️ <b>操作前：</b><code>{time_before}</code>\n"
+                    f"⏱️ <b>最新时长：</b><code>{time_after}</code>"
+                )
+            else:
+                msg = (
+                    "🔴 <b>假成功警告 (被验证码拦截)</b>\n\n"
+                    "代码已成功点击加时按钮，但服务器未生效(极大概率是底层弹出了无法绕过的图形验证码)。\n"
+                    f"⏱️ <b>操作前：</b><code>{time_before}</code>\n"
+                    f"⏱️ <b>操作后：</b><code>{time_after}</code>"
+                )
             send_tg_message(msg, screenshot_real_path)
             
         else:
