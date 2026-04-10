@@ -114,29 +114,48 @@ def g4free_renewal_task(driver: Driver, data):
             send_tg_message("🔴 <b>异常拦截</b>\n在 Dashboard 页面未找到 'Renew' 按键，面板可能已更改。", screenshot_real_path)
             return
 
-        # 智能路径拼接
-        renew_href = renew_href.rstrip('/') 
-        if renew_href.startswith("http"):
-            console_url = f"{renew_href}/console"
+        # --- 核心修复点 1：使用正则表达式精准提取 Server ID ---
+        # 无论 renew_href 是 /dashboard/server/bd3781ac 还是绝对路径
+        server_match = re.search(r'/server/([a-zA-Z0-9]+)', renew_href)
+        if server_match:
+            server_id = server_match.group(1)
+            # 使用提取到的纯净 ID，强制拼接绝对正确的控制台 URL
+            console_url = f"https://panel.gaming4free.net/server/{server_id}/console"
         else:
-            clean_href = renew_href.lstrip('/')
-            console_url = f"https://panel.gaming4free.net/{clean_href}/console"
+            driver.save_screenshot(screenshot_name)
+            send_tg_message(f"🔴 <b>路径解析失败</b>\n无法从链接 {renew_href} 中提取服务器 ID。", screenshot_real_path)
+            return
             
-        print(f"🚀 跳转至服务器控制台: {console_url}")
+        print(f"🚀 智能正则拼接完毕，准备跳转至服务器控制台: {console_url}")
         driver.get(console_url)
         driver.sleep(8)
 
         # 【阶段三：处理控制台面板 (panel 子域名) 的二次独立登录】
         if "login" in driver.current_url.lower() or driver.is_element_present('input[type="password"]'):
             print("⚠️ 触发了控制台面板二次登录，正在自动填写凭证...")
-            driver.type('input[type="text"], input[type="email"]', ACCOUNT)
-            driver.type('input[type="password"]', PASSWORD)
             
-            # 给予 Turnstile 验证盾加载和静默通过的时间
-            print("🛡️ 等待可能的验证盾初始化...")
-            driver.sleep(5) 
-            
-            driver.click('button[type="submit"], button:contains("LOGIN"), button:contains("Login")')
+            # 增加 try-except 保护套，防止任何动态 DOM 异常导致脚本全盘崩溃
+            try:
+                driver.type('input[type="text"], input[type="email"]', ACCOUNT)
+                driver.type('input[type="password"]', PASSWORD)
+                
+                print("🛡️ 等待可能的验证盾初始化...")
+                driver.sleep(5) 
+                
+                # --- 核心修复点 2：使用原生 JS 强制点击，彻底消灭 DOM Error ---
+                js_login_click = """
+                var btn = document.querySelector('button[type="submit"]');
+                if (btn) {
+                    btn.click();
+                    return true;
+                }
+                return false;
+                """
+                driver.run_js(js_login_click)
+                print("👆 已通过底层 JS 触发 LOGIN 点击。")
+            except Exception as e:
+                print(f"⚠️ 填写表单或点击登录时发生小意外 (可能页面已自动重载): {e}")
+
             print("⏳ 等待控制台面板登录跳转...")
             driver.sleep(10)
             
