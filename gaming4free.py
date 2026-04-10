@@ -177,7 +177,6 @@ def g4free_renewal_task(driver: Driver, data):
         var btns = document.querySelectorAll('button');
         for (var i = 0; i < btns.length; i++) {
             var text = btns[i].innerText || btns[i].textContent;
-            // 核心修复：统一转换为小写后比对，彻底无视前端 CSS 大小写渲染的干扰
             if (text && text.toLowerCase().includes('add 90 minutes')) {
                 btns[i].click();
                 return true;
@@ -186,27 +185,30 @@ def g4free_renewal_task(driver: Driver, data):
         return false;
         """
         if driver.run_js(js_click_add):
-            driver.sleep(3) 
-            if driver.is_element_present("iframe[src*='turnstile'], iframe[src*='cloudflare']"):
-                print("🛡️ 检测到验证盾，等待底层自动绕过...")
-                driver.sleep(15) 
+            driver.sleep(6) 
+            
+            # 如果弹出复杂的 reCAPTCHA 或 Turnstile，给予更长的时间让底层或代理去尝试绕过
+            if driver.is_element_present("iframe[src*='turnstile'], iframe[src*='recaptcha'], iframe[src*='cloudflare']"):
+                print("🛡️ 检测到验证盾 (reCAPTCHA/Cloudflare)，正在等待底层环境或代理处理...")
+                # 延长等待时间，防止在验证码还没处理完时代码就往下走了
+                driver.sleep(20) 
                 
             print("📺 开始等待广告播放 (90 秒)...")
             driver.sleep(90)
 
-            print("🔄 广告结束，执行双重刷新...")
-            driver.refresh()
+            print("🔄 广告结束，正在通过底层 JS 执行双重刷新...")
+            # 【修复点】：使用原生 JavaScript 进行页面刷新，彻底解决 attribute 报错
+            driver.run_js("location.reload(true);")
             driver.sleep(6)
-            driver.refresh()
+            driver.run_js("location.reload(true);")
             driver.sleep(8)
             
             html_source = driver.page_html
-            # 根据你提供的源码，依然可以使用正则提取
             match = re.search(r'suspended.*?in\s*<strong[^>]*>(.*?)</strong>', html_source, re.IGNORECASE | re.DOTALL)
             final_time = match.group(1).strip() if match else "未知"
             
             driver.save_screenshot(screenshot_name)
-            msg = f"🟢 <b>G4Free 续期完成！</b>\n\n安全通过自然流跨域并看守广告。\n⏱️ <b>最新时长：</b><code>{final_time}</code>"
+            msg = f"🟢 <b>G4Free 续期操作完成！</b>\n\n已执行点击和刷新操作。\n⏱️ <b>抓取到的最新时长：</b><code>{final_time}</code>"
             send_tg_message(msg, screenshot_real_path)
             
         else:
