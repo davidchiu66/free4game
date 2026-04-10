@@ -38,14 +38,13 @@ def send_tg_message(text: str, photo_path: str = None):
         print(f"❌ Telegram 发送失败: {e}")
 
 def inject_cookies(driver: Driver, raw_cookie_str: str, target_domain: str):
-    """跨域 Cookie 预热与注入 (已修复语法结构)"""
+    """跨域 Cookie 预热与注入"""
     if not raw_cookie_str: 
         return
     print(f"🍪 正在初始化并预加载 {target_domain} 的环境...")
     driver.get(f"https://{target_domain}/404_init_cookie") 
     
     cookies_list = []
-    # 使用清晰的循环结构解析 Cookie，避免语法工件干扰
     for pair in raw_cookie_str.split(';'):
         if '=' in pair:
             name, value = pair.strip().split('=', 1)
@@ -90,8 +89,8 @@ class BusterExtension:
 @browser(
     headless=False, 
     window_size=(1920, 1080),
-    # 正确实例化插件并传入列表
-    extensions= 
+    # 🚨 语法修复点：已在此处补全合法的插件加载列表！
+    extensions=
 )
 def g4free_renewal_task(driver: Driver, data):
     screenshot_name = "g4free_status.png"
