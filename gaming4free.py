@@ -7,13 +7,14 @@ from botasaurus.browser import browser, Driver
 # 1. 环境变量配置
 # ============================================================
 G4FREE_COOKIE = os.environ.get("G4FREE_USER_COOKIE", "")
-G4FREE_PANEL_COOKIE = os.environ.get("G4FREE_PANEL_COOKIE", "") 
+G4FREE_PANEL_COOKIE = os.environ.get("G4FREE_PANEL_COOKIE", "")
 ACCOUNT = os.environ.get("G4FREE_ACCOUNT", "")
 PASSWORD = os.environ.get("G4FREE_PASSWORD", "")
 TG_BOT_TOKEN = os.environ.get("TG_BOT_TOKEN", "")
 TG_CHAT_ID = os.environ.get("TG_CHAT_ID", "")
 
 DASHBOARD_URL = "https://gaming4free.net/dashboard"
+
 
 # ============================================================
 # 2. 辅助函数合集
@@ -26,7 +27,11 @@ def send_tg_message(text: str, photo_path: str = None):
     try:
         if photo_path and os.path.exists(photo_path):
             url = f"https://api.telegram.org/bot{TG_BOT_TOKEN}/sendPhoto"
-            data = {"chat_id": TG_CHAT_ID, "caption": f"🎮\n{text}", "parse_mode": "HTML"}
+            data = {
+                "chat_id": TG_CHAT_ID,
+                "caption": f"🎮\n{text}",
+                "parse_mode": "HTML",
+            }
             with open(photo_path, "rb") as f:
                 requests.post(url, data=data, files={"photo": f}, timeout=30)
         else:
@@ -37,70 +42,74 @@ def send_tg_message(text: str, photo_path: str = None):
     except Exception as e:
         print(f"❌ Telegram 发送失败: {e}")
 
+
 def inject_cookies(driver: Driver, raw_cookie_str: str, target_domain: str):
     """跨域 Cookie 预热与注入"""
-    if not raw_cookie_str: 
+    if not raw_cookie_str:
         return
     print(f"🍪 正在初始化并预加载 {target_domain} 的环境...")
-    driver.get(f"https://{target_domain}/404_init_cookie") 
-    
+    driver.get(f"https://{target_domain}/404_init_cookie")
+
     cookies_list = []
-    for pair in raw_cookie_str.split(';'):
-        if '=' in pair:
-            name, value = pair.strip().split('=', 1)
-            cookies_list.append({"name": name, "value": value, "domain": target_domain, "path": "/"})
-            
+    for pair in raw_cookie_str.split(";"):
+        if "=" in pair:
+            name, value = pair.strip().split("=", 1)
+            cookies_list.append(
+                {"name": name, "value": value, "domain": target_domain, "path": "/"}
+            )
+
     try:
-        if hasattr(driver, 'add_cookies'): 
+        if hasattr(driver, "add_cookies"):
             driver.add_cookies(cookies_list)
         else:
-            # 严格修复：恢复字典键值访问
             for c in cookies_list:
-                c_name = c
-                c_value = c
-                c_domain = c
-                c_path = c
-                driver.run_js(f"document.cookie = '{c_name}={c_value}; domain={c_domain}; path={c_path}';")
+                driver.run_js(
+                    f"document.cookie = '{c['name']}={c['value']}; domain={c['domain']}; path={c['path']}';"
+                )
         print(f"✅ {target_domain} Cookie 预加载完毕！")
     except Exception as e:
         print(f"⚠️ {target_domain} Cookie 注入异常: {e}")
+
 
 def get_total_minutes(time_str: str) -> int:
     """将文本时间转换为纯数字总分钟数以便数学运算"""
     if not time_str or time_str == "未知":
         return 0
-    h_match = re.search(r'(\d+)\s*hour', time_str, re.IGNORECASE)
-    m_match = re.search(r'(\d+)\s*minute', time_str, re.IGNORECASE)
-    
+    h_match = re.search(r"(\d+)\s*hour", time_str, re.IGNORECASE)
+    m_match = re.search(r"(\d+)\s*minute", time_str, re.IGNORECASE)
+
     hours = int(h_match.group(1)) if h_match else 0
     minutes = int(m_match.group(1)) if m_match else 0
-    
+
     return hours * 60 + minutes
+
 
 # ============================================================
 # 3. 核心修复：Buster 插件伪装类
 # ============================================================
 class BusterExtension:
     """提供 Botasaurus 底层需要的 .load() 方法，平滑加载插件"""
+
     def __init__(self, path):
         self.path = os.path.abspath(path)
 
     def load(self, with_command_line_option=False):
         return self.path
 
+
 # ============================================================
 # 4. 核心业务流程：G4Free 续期任务 (带 Buster 破盾能力)
 # ============================================================
 @browser(
-    headless=False, 
+    headless=False,
     window_size=(1920, 1080),
     # 🚨 语法修复点：精确传入插件列表
-    extensions=[]
+    extensions=[],
 )
 def g4free_renewal_task(driver: Driver, data):
     screenshot_name = "g4free_status.png"
     screenshot_real_path = os.path.join("output", "screenshots", screenshot_name)
-    
+
     try:
         # 【全域预加载与登录过渡】
         if G4FREE_PANEL_COOKIE:
@@ -115,13 +124,15 @@ def g4free_renewal_task(driver: Driver, data):
         if "login" in driver.current_url.lower():
             print("⚠️ 主站 Cookie 失效，启动账号密码兜底登录...")
             # 修复选择器
-            driver.type('input', ACCOUNT)
-            driver.type('input', PASSWORD)
-            driver.click('button')
+            driver.type("input", ACCOUNT)
+            driver.type("input", PASSWORD)
+            driver.click("button")
             driver.sleep(8)
             if "login" in driver.current_url.lower():
                 driver.save_screenshot(screenshot_name)
-                send_tg_message("🔴 <b>主站兜底登录失败</b>\n请检查账号密码。", screenshot_real_path)
+                send_tg_message(
+                    "🔴 <b>主站兜底登录失败</b>\n请检查账号密码。", screenshot_real_path
+                )
                 return
 
         # 【步骤二：拟人化点击 Renew】
@@ -130,10 +141,10 @@ def g4free_renewal_task(driver: Driver, data):
         js_click_renew = """
         var links = document.querySelectorAll('a');
         for (var i = 0; i < links.length; i++) {
-            var text = links.innerText || links.textContent;
+            var text = links[i].innerText || links[i].textContent;
             if (text && text.includes('Renew')) {
-                links.removeAttribute('target');
-                links.click();
+                links[i].removeAttribute('target');
+                links[i].click();
                 return true;
             }
         } 
@@ -141,7 +152,10 @@ def g4free_renewal_task(driver: Driver, data):
         """
         if not driver.run_js(js_click_renew):
             driver.save_screenshot(screenshot_name)
-            send_tg_message("🔴 <b>异常拦截</b>\n在 Dashboard 未找到 Renew 按钮。", screenshot_real_path)
+            send_tg_message(
+                "🔴 <b>异常拦截</b>\n在 Dashboard 未找到 Renew 按钮。",
+                screenshot_real_path,
+            )
             return
         driver.sleep(10)
 
@@ -150,10 +164,10 @@ def g4free_renewal_task(driver: Driver, data):
         js_click_panel = """
         var links = document.querySelectorAll('a');
         for (var i = 0; i < links.length; i++) {
-            var text = links.innerText || links.textContent;
+            var text = links[i].innerText || links[i].textContent;
             if (text && text.trim().toLowerCase() === 'panel') {
-                links.removeAttribute('target');
-                links.click();
+                links[i].removeAttribute('target');
+                links[i].click();
                 return true;
             }
         } 
@@ -161,13 +175,18 @@ def g4free_renewal_task(driver: Driver, data):
         """
         if not driver.run_js(js_click_panel):
             driver.save_screenshot(screenshot_name)
-            send_tg_message("🔴 <b>页面结构异常</b>\n未找到 Panel 按钮。", screenshot_real_path)
+            send_tg_message(
+                "🔴 <b>页面结构异常</b>\n未找到 Panel 按钮。", screenshot_real_path
+            )
             return
         driver.sleep(10)
 
         if "login" in driver.current_url.lower():
             driver.save_screenshot(screenshot_name)
-            send_tg_message("🔴 <b>面板跨域认证失败</b>\n虽已模拟点击，但面板 Cookie 失效或被图形验证码拦截。", screenshot_real_path)
+            send_tg_message(
+                "🔴 <b>面板跨域认证失败</b>\n虽已模拟点击，但面板 Cookie 失效或被图形验证码拦截。",
+                screenshot_real_path,
+            )
             return
 
         # 【步骤四：拟人化点击 Console】
@@ -175,10 +194,10 @@ def g4free_renewal_task(driver: Driver, data):
         js_click_console = """
         var links = document.querySelectorAll('a');
         for (var i = 0; i < links.length; i++) {
-            var text = links.innerText || links.textContent;
-            var href = links.getAttribute('href') || "";
+            var text = links[i].innerText || links[i].textContent;
+            var href = links[i].getAttribute('href') || "";
             if ((text && text.includes('Console')) || href.endsWith('/console')) {
-                links.click();
+                links[i].click();
                 return true;
             }
         } 
@@ -186,33 +205,40 @@ def g4free_renewal_task(driver: Driver, data):
         """
         if not driver.run_js(js_click_console):
             driver.save_screenshot(screenshot_name)
-            send_tg_message("🔴 <b>页面异常</b>\n在 Panel 页面未找到 Console。", screenshot_real_path)
+            send_tg_message(
+                "🔴 <b>页面异常</b>\n在 Panel 页面未找到 Console。",
+                screenshot_real_path,
+            )
             return
         driver.sleep(8)
 
         # 【步骤五：防欺骗续期与 Buster 音频破解】
         print("⏱️ 正在获取加时前的初始时间...")
         html_source_before = driver.page_html
-        match_before = re.search(r'suspended.*?in\s*<strong*>(.*?)</strong>', html_source_before, re.IGNORECASE | re.DOTALL)
+        match_before = re.search(
+            r"suspended.*?in\s*<strong*>(.*?)</strong>",
+            html_source_before,
+            re.IGNORECASE | re.DOTALL,
+        )
         time_before = match_before.group(1).strip() if match_before else "未知"
         minutes_before = get_total_minutes(time_before)
-        
+
         print("👆 准备查找并点击 'Add 90 Minutes'...")
         js_click_add = """
         var btns = document.querySelectorAll('button');
         for (var i = 0; i < btns.length; i++) {
-            var text = btns.innerText || btns.textContent;
+            var text = btns[i].innerText || btns[i].textContent;
             if (text && text.toLowerCase().includes('add 90 minutes')) {
-                btns.click();
+                btns[i].click();
                 return true;
             }
         } 
         return false;
         """
-        
+
         if driver.run_js(js_click_add):
-            driver.sleep(4) 
-            
+            driver.sleep(4)
+
             # 🚨 核心破解模块：探测弹窗并交由 Buster 处理
             bframe_sel = "iframe"
             if driver.is_element_present(bframe_sel):
@@ -222,17 +248,17 @@ def g4free_renewal_task(driver: Driver, data):
                     print("🎧 切换至音频挑战模式...")
                     driver.click("#recaptcha-audio-button", iframe=bframe_sel)
                     driver.sleep(3)
-                    
+
                     print("🤖 触发 Buster AI 破解...")
                     driver.click("#solver-button", iframe=bframe_sel)
-                    
+
                     print("⏳ 正在等待 Buster 请求 API 并完成破解...")
                     driver.sleep(15)
                 except Exception as e:
                     print(f"⚠️ Buster 破解交互发生异常: {e}")
             else:
                 print("✅ 未检测到验证码弹窗，直接进入等待阶段。")
-                
+
             print("📺 开始等待广告播放 (90 秒)...")
             driver.sleep(90)
 
@@ -241,14 +267,18 @@ def g4free_renewal_task(driver: Driver, data):
             driver.sleep(6)
             driver.run_js("location.reload(true);")
             driver.sleep(8)
-            
+
             html_source_after = driver.page_html
-            match_after = re.search(r'suspended.*?in\s*<strong*>(.*?)</strong>', html_source_after, re.IGNORECASE | re.DOTALL)
+            match_after = re.search(
+                r"suspended.*?in\s*<strong*>(.*?)</strong>",
+                html_source_after,
+                re.IGNORECASE | re.DOTALL,
+            )
             time_after = match_after.group(1).strip() if match_after else "未知"
             minutes_after = get_total_minutes(time_after)
-            
+
             driver.save_screenshot(screenshot_name)
-            
+
             # 【最终审判】计算时差
             if minutes_after > minutes_before + 30:
                 msg = (
@@ -265,14 +295,20 @@ def g4free_renewal_task(driver: Driver, data):
                     f"⏱️ <b>操作后：</b><code>{time_after}</code>"
                 )
             send_tg_message(msg, screenshot_real_path)
-            
+
         else:
             driver.save_screenshot(screenshot_name)
-            send_tg_message("🔴 <b>异常拦截</b>\n未找到加时按钮，请检查截图核实。", screenshot_real_path)
+            send_tg_message(
+                "🔴 <b>异常拦截</b>\n未找到加时按钮，请检查截图核实。",
+                screenshot_real_path,
+            )
 
     except Exception as e:
         driver.save_screenshot(screenshot_name)
-        send_tg_message(f"🔴 <b>脚本严重报错</b>\n<code>{str(e)}</code>", screenshot_real_path)
+        send_tg_message(
+            f"🔴 <b>脚本严重报错</b>\n<code>{str(e)}</code>", screenshot_real_path
+        )
+
 
 if __name__ == "__main__":
     g4free_renewal_task()
