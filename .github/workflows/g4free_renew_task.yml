@@ -49,7 +49,7 @@ jobs:
 
       - name: Install Python Dependencies
         run: |
-          pip install botasaurus==4.0.97 requests==2.31.0
+          pip install botasaurus==4.0.97 requests==2.31.0 chrome-extension-python
 
       # ==========================================
       # 5. 下载并解压 Buster AI 语音破解插件
