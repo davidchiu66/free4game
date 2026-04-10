@@ -39,19 +39,22 @@ def send_tg_message(text: str, photo_path: str = None):
         print(f"❌ Telegram 发送失败: {e}")
 
 # ============================================================
-# 3. 辅助函数：Cookie 高可用注入
+# 3. 辅助函数：Cookie 注入
 # ============================================================
-def inject_cookies(driver: Driver, raw_cookie_str: str):
+def inject_cookies(driver: Driver, raw_cookie_str: str, target_domain: str):
+    """将原生 Cookie 字符串转化为 Botasaurus 支持的格式并注入指定域名"""
     if not raw_cookie_str: 
         return
-    print("🍪 正在解析并注入 Cookie...")
-    driver.get("https://gaming4free.net/404_init_cookie") # 初始化主站域名环境
+    print(f"🍪 正在解析并注入 {target_domain} 的 Cookie...")
+    
+    # 访问目标域名下的无效路径，以初始化该域名的 Cookie 环境
+    driver.get(f"https://{target_domain}/404_init_cookie") 
     
     cookies_list = []
     for pair in raw_cookie_str.split(';'):
         if '=' in pair:
             name, value = pair.strip().split('=', 1)
-            cookies_list.append({"name": name, "value": value, "domain": "gaming4free.net", "path": "/"})
+            cookies_list.append({"name": name, "value": value, "domain": target_domain, "path": "/"})
             
     try:
         if hasattr(driver, 'add_cookies'): 
@@ -61,9 +64,9 @@ def inject_cookies(driver: Driver, raw_cookie_str: str):
         else:
             for c in cookies_list:
                 driver.run_js(f"document.cookie = '{c['name']}={c['value']}; domain={c['domain']}; path={c['path']}';")
-        print("✅ Cookie 注入尝试完毕！")
+        print(f"✅ {target_domain} Cookie 注入完毕！")
     except Exception as e:
-        print(f"⚠️ Cookie 注入异常: {e}")
+        print(f"⚠️ {target_domain} Cookie 注入异常: {e}")
 
 # ============================================================
 # 4. 核心任务：G4Free 续期逻辑
@@ -76,13 +79,12 @@ def g4free_renewal_task(driver: Driver, data):
     try:
         # 【阶段一：主站智能登录】
         if G4FREE_COOKIE:
-            inject_cookies(driver, G4FREE_COOKIE)
+            inject_cookies(driver, G4FREE_COOKIE, "gaming4free.net")
 
-        print(f"🌐 访问控制台面板: {DASHBOARD_URL}")
+        print(f"🌐 访问主站控制台面板: {DASHBOARD_URL}")
         driver.get(DASHBOARD_URL)
         driver.sleep(5)
 
-        # 兜底检测：如果 URL 被重定向到了 login
         if "login" in driver.current_url.lower():
             print("⚠️ 主站 Cookie 失效，启动账号密码自动兜底登录...")
             driver.type('input[type="email"], input[name="email"]', ACCOUNT)
@@ -92,10 +94,10 @@ def g4free_renewal_task(driver: Driver, data):
             
             if "login" in driver.current_url.lower():
                 driver.save_screenshot(screenshot_name)
-                send_tg_message("🔴 <b>主站兜底登录失败</b>\n请检查账号密码或查看截图是否有严重拦截。", screenshot_real_path)
+                send_tg_message("🔴 <b>主站兜底登录失败</b>\n请检查账号密码或查看截图。", screenshot_real_path)
                 return
 
-        # 【阶段二：提取 Renew 链接并跳转 Console】
+        # 【阶段二：提取 Renew 链接并前往服务器总览页】
         print("🔍 正在扫描服务器续期链接...")
         js_find_link = """
         var links = document.querySelectorAll('a');
@@ -111,58 +113,46 @@ def g4free_renewal_task(driver: Driver, data):
         
         if not renew_href:
             driver.save_screenshot(screenshot_name)
-            send_tg_message("🔴 <b>异常拦截</b>\n在 Dashboard 页面未找到 'Renew' 按键，面板可能已更改。", screenshot_real_path)
+            send_tg_message("🔴 <b>异常拦截</b>\n在 Dashboard 未找到 'Renew' 按键。", screenshot_real_path)
             return
 
-        # --- 核心修复点 1：使用正则表达式精准提取 Server ID ---
-        # 无论 renew_href 是 /dashboard/server/bd3781ac 还是绝对路径
+        # 提取 Server ID，构造【总览页面】URL
         server_match = re.search(r'/server/([a-zA-Z0-9]+)', renew_href)
         if server_match:
             server_id = server_match.group(1)
-            # 使用提取到的纯净 ID，强制拼接绝对正确的控制台 URL
-            console_url = f"https://panel.gaming4free.net/server/{server_id}/console"
+            overview_url = f"https://panel.gaming4free.net/server/{server_id}"
         else:
             driver.save_screenshot(screenshot_name)
-            send_tg_message(f"🔴 <b>路径解析失败</b>\n无法从链接 {renew_href} 中提取服务器 ID。", screenshot_real_path)
+            send_tg_message(f"🔴 <b>路径解析失败</b>\n无法从链接 {renew_href} 提取 ID。", screenshot_real_path)
             return
             
-        print(f"🚀 智能正则拼接完毕，准备跳转至服务器控制台: {console_url}")
-        driver.get(console_url)
+        print(f"🚀 跳转至服务器总览页面: {overview_url}")
+        driver.get(overview_url)
         driver.sleep(8)
 
-        # 【阶段三：处理控制台面板 (panel 子域名) 的二次独立登录】
-        if "login" in driver.current_url.lower() or driver.is_element_present('input[type="password"]'):
-            print("⚠️ 触发了控制台面板二次登录，正在自动填写凭证...")
+        # 【阶段三：在总览页面点击 Console 进入终端】
+        print("🖥️ 正在寻找并点击 Console 终端入口...")
+        js_click_console = """
+        var links = document.querySelectorAll('a');
+        for (var i = 0; i < links.length; i++) {
+            var text = links[i].innerText || links[i].textContent;
+            var href = links[i].getAttribute('href') || "";
+            if ((text && text.includes('Console')) || href.endsWith('/console')) {
+                links[i].click();
+                return true;
+            }
+        }
+        return false;
+        """
+        console_clicked = driver.run_js(js_click_console)
+        
+        if not console_clicked:
+            driver.save_screenshot(screenshot_name)
+            send_tg_message("🔴 <b>页面结构异常</b>\n在服务器总览页面未能找到 Console 按钮，请核实截图。", screenshot_real_path)
+            return
             
-            # 增加 try-except 保护套，防止任何动态 DOM 异常导致脚本全盘崩溃
-            try:
-                driver.type('input[type="text"], input[type="email"]', ACCOUNT)
-                driver.type('input[type="password"]', PASSWORD)
-                
-                print("🛡️ 等待可能的验证盾初始化...")
-                driver.sleep(5) 
-                
-                # --- 核心修复点 2：使用原生 JS 强制点击，彻底消灭 DOM Error ---
-                js_login_click = """
-                var btn = document.querySelector('button[type="submit"]');
-                if (btn) {
-                    btn.click();
-                    return true;
-                }
-                return false;
-                """
-                driver.run_js(js_login_click)
-                print("👆 已通过底层 JS 触发 LOGIN 点击。")
-            except Exception as e:
-                print(f"⚠️ 填写表单或点击登录时发生小意外 (可能页面已自动重载): {e}")
-
-            print("⏳ 等待控制台面板登录跳转...")
-            driver.sleep(10)
-            
-            if "login" in driver.current_url.lower() or driver.is_element_present('input[type="password"]'):
-                driver.save_screenshot(screenshot_name)
-                send_tg_message("🔴 <b>控制台面板登录失败</b>\n二次登录未能成功，可能是由于极强验证码拦截或密码不匹配，请检查截图。", screenshot_real_path)
-                return
+        print("⏳ 等待 Console 面板加载...")
+        driver.sleep(8)
 
         # 【阶段四：点击加时与处理 Cloudflare 及广告】
         print("👆 准备查找并点击 'Add 90 Minutes' 按钮...")
@@ -182,9 +172,8 @@ def g4free_renewal_task(driver: Driver, data):
         if btn_clicked:
             driver.sleep(3) 
             
-            # 检测潜在的独立 CF 弹窗质询
             if driver.is_element_present("iframe[src*='turnstile'], iframe[src*='cloudflare']"):
-                print("🛡️ 检测到 Cloudflare 验证盾，等待 Botasaurus 底层环境自动绕过...")
+                print("🛡️ 检测到 Cloudflare 验证盾，等待底层环境自动绕过...")
                 driver.sleep(15) 
                 
             print("📺 开始等待广告播放完毕 (安全硬等待 90 秒)...")
@@ -197,24 +186,23 @@ def g4free_renewal_task(driver: Driver, data):
             driver.refresh()
             driver.sleep(8)
             
-            # 从网页源码中精确提取时间
             html_source = driver.page_html
             match = re.search(r'suspended.*?in\s*<strong[^>]*>(.*?)</strong>', html_source, re.IGNORECASE | re.DOTALL)
             
-            final_time = match.group(1).strip() if match else "未知 (正则未完全匹配到时长结构)"
+            final_time = match.group(1).strip() if match else "未知 (正则未完全匹配)"
             print(f"⏱️ 最终剩余时间: {final_time}")
             
             driver.save_screenshot(screenshot_name)
             msg = (
                 "🟢 <b>G4Free 续期任务完成！</b>\n\n"
-                "广告等待与双重刷新已执行完毕。\n"
+                "通过标准流程安全进入控制台，广告等待与刷新已执行完毕。\n"
                 f"⏱️ <b>最新剩余时长：</b><code>{final_time}</code>"
             )
             send_tg_message(msg, screenshot_real_path)
             
         else:
             driver.save_screenshot(screenshot_name)
-            send_tg_message("🔴 <b>异常拦截</b>\n在控制台未找到 'Add 90 Minutes' 按钮，页面可能仍在加载或结构已变，请查看截图。", screenshot_real_path)
+            send_tg_message("🔴 <b>异常拦截</b>\n在终端未找到 'Add 90 Minutes' 按钮，请查看截图。", screenshot_real_path)
 
     except Exception as e:
         driver.save_screenshot(screenshot_name)
