@@ -64,6 +64,16 @@ jobs:
           7z x -y extensions/buster/buster.zip -oextensions/buster/unpacked
           echo "📦 Buster 插件解压完毕"
 
+      # =========================
+      # 🟡 5️⃣ 调试 IP
+      # =========================
+      - name: Check IP
+        run: |
+          echo "🌍 当前 IP:"
+          curl -s https://api.ipify.org
+          echo
+          curl -s https://ipinfo.io
+          
       # ==========================================
       # 6. 运行核心续期脚本 (注入环境变量与虚拟显示)
       # ==========================================
