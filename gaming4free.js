@@ -31,42 +31,56 @@ async function sendTgMessage(text, photoPath = null) {
     }
     try {
         if (photoPath && fs.existsSync(photoPath)) {
+            console.log(`📸 准备发送截图: ${photoPath}`);
+            const stat = fs.statSync(photoPath);
+            console.log(`📸 文件大小: ${stat.size} bytes`);
+            
             const FormData = require('form-data');
             const form = new FormData();
             form.append('chat_id', TG_CHAT_ID);
+            form.append('photo', fs.createReadStream(photoPath));
             form.append('caption', `🎮\n${text}`);
             form.append('parse_mode', 'HTML');
-            form.append('photo', fs.createReadStream(photoPath));
             
             const response = await fetch(`https://api.telegram.org/bot${TG_BOT_TOKEN}/sendPhoto`, {
                 method: 'POST',
                 body: form
             });
             const result = await response.json();
+            console.log(`📨 TG API 响应: ${JSON.stringify(result)}`);
             if (result.ok) {
                 console.log('📨 Telegram 状态反馈发送成功！');
             } else {
                 console.log(`❌ Telegram 发送失败: ${result.description}`);
+                await sendTgMessageTextOnly(text);
             }
         } else {
-            const response = await fetch(`https://api.telegram.org/bot${TG_BOT_TOKEN}/sendMessage`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    chat_id: TG_CHAT_ID,
-                    text: `🎮\n${text}`,
-                    parse_mode: 'HTML'
-                })
-            });
-            const result = await response.json();
-            if (result.ok) {
-                console.log('📨 Telegram 状态反馈发送成功！');
-            } else {
-                console.log(`❌ Telegram 发送失败: ${result.description}`);
-            }
+            await sendTgMessageTextOnly(text);
         }
     } catch (e) {
         console.log(`❌ Telegram 发送失败: ${e.message}`);
+    }
+}
+
+async function sendTgMessageTextOnly(text) {
+    try {
+        const response = await fetch(`https://api.telegram.org/bot${TG_BOT_TOKEN}/sendMessage`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                chat_id: TG_CHAT_ID,
+                text: `🎮\n${text}`,
+                parse_mode: 'HTML'
+            })
+        });
+        const result = await response.json();
+        if (result.ok) {
+            console.log('📨 Telegram 文本消息发送成功！');
+        } else {
+            console.log(`❌ Telegram 文本消息发送失败: ${result.description}`);
+        }
+    } catch (e) {
+        console.log(`❌ Telegram 文本消息发送失败: ${e.message}`);
     }
 }
 
@@ -118,7 +132,7 @@ async function clickLinkByText(page, searchText, exactMatch = false, retryCount 
     for (let attempt = 0; attempt < retryCount; attempt++) {
         await closeOverlays(page);
         
-        const found = await page.evaluate((searchText, exactMatch) => {
+        const found = await page.evaluate(({searchText, exactMatch}) => {
             const links = document.querySelectorAll('a');
             for (let i = 0; i < links.length; i++) {
                 const text = links[i].innerText || links[i].textContent;
@@ -129,7 +143,7 @@ async function clickLinkByText(page, searchText, exactMatch = false, retryCount 
                 }
             }
             return false;
-        }, searchText, exactMatch);
+        }, {searchText, exactMatch});
         
         if (found) {
             console.log(`✅ 找到并点击 "${searchText}"`);
@@ -145,7 +159,7 @@ async function clickLinkByHref(page, hrefEnd, retryCount = 3) {
     for (let attempt = 0; attempt < retryCount; attempt++) {
         await closeOverlays(page);
         
-        const found = await page.evaluate((hrefEnd) => {
+        const found = await page.evaluate(({hrefEnd}) => {
             const links = document.querySelectorAll('a');
             for (let i = 0; i < links.length; i++) {
                 const href = links[i].getAttribute('href');
@@ -155,7 +169,7 @@ async function clickLinkByHref(page, hrefEnd, retryCount = 3) {
                 }
             }
             return false;
-        }, hrefEnd);
+        }, {hrefEnd});
         
         if (found) {
             console.log(`✅ 通过 href 找到并点击 "${hrefEnd}"`);
@@ -171,7 +185,7 @@ async function clickButtonByText(page, searchText, retryCount = 3) {
     for (let attempt = 0; attempt < retryCount; attempt++) {
         await closeOverlays(page);
         
-        const found = await page.evaluate((searchText) => {
+        const found = await page.evaluate(({searchText}) => {
             const btns = document.querySelectorAll('button');
             for (let i = 0; i < btns.length; i++) {
                 const text = btns[i].innerText || btns[i].textContent;
@@ -181,7 +195,7 @@ async function clickButtonByText(page, searchText, retryCount = 3) {
                 }
             }
             return false;
-        }, searchText);
+        }, {searchText});
         
         if (found) {
             console.log(`✅ 找到并点击按钮 "${searchText}"`);
@@ -259,10 +273,27 @@ async function runRenewal() {
             if (inputs.length >= 2) {
                 await inputs[0].fill(ACCOUNT);
                 await inputs[1].fill(PASSWORD);
+                console.log('✅ 已填入账号和密码');
             } else if (inputs.length === 1) {
                 await inputs[0].fill(ACCOUNT);
+                console.log('✅ 已填入账号');
             }
-            await clickButtonByText(page, '');
+            
+            await page.evaluate(() => {
+                const buttons = document.querySelectorAll('button');
+                for (const btn of buttons) {
+                    const text = btn.innerText || btn.textContent;
+                    if (text && text.trim()) {
+                        btn.click();
+                        return;
+                    }
+                }
+                const forms = document.querySelectorAll('form');
+                if (forms.length > 0) {
+                    forms[0].submit();
+                }
+            });
+            console.log('✅ 已提交登录表单');
             await page.waitForTimeout(8000);
             
             if (page.url().toLowerCase().includes('login')) {
