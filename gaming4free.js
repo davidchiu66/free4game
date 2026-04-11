@@ -146,6 +146,12 @@ async function clickLinkByText(page, searchText, exactMatch = false, retryCount 
         
         if (found) {
             console.log(`✅ 找到并点击 "${searchText}"`);
+            try {
+                await page.waitForLoadState('networkidle', { timeout: 10000 });
+                console.log(`✅ 页面加载完成: ${page.url()}`);
+            } catch (e) {
+                console.log(`⚠️ 等待网络空闲超时，继续执行...`);
+            }
             return true;
         }
         console.log(`⚠️ 第 ${attempt + 1} 次未找到 "${searchText}"，重试中...`);
@@ -172,6 +178,9 @@ async function clickLinkByHref(page, hrefEnd, retryCount = 3) {
         
         if (found) {
             console.log(`✅ 通过 href 找到并点击 "${hrefEnd}"`);
+            try {
+                await page.waitForLoadState('networkidle', { timeout: 10000 });
+            } catch (e) {}
             return true;
         }
         console.log(`⚠️ 第 ${attempt + 1} 次未找到 href "${hrefEnd}"，重试中...`);
@@ -198,6 +207,9 @@ async function clickButtonByText(page, searchText, retryCount = 3) {
         
         if (found) {
             console.log(`✅ 找到并点击按钮 "${searchText}"`);
+            try {
+                await page.waitForLoadState('networkidle', { timeout: 10000 });
+            } catch (e) {}
             return true;
         }
         console.log(`⚠️ 第 ${attempt + 1} 次未找到按钮 "${searchText}"，重试中...`);
@@ -348,31 +360,48 @@ async function runRenewal() {
         console.log('⏱️ 正在获取加时前的初始时间...');
         const timeBefore = await getTimeInfo(page);
         const minutesBefore = getTotalMinutes(timeBefore);
+        console.log(`⏱️ 当前时长: ${timeBefore} (${minutesBefore}分钟)`);
         
         console.log('👆 准备查找并点击 "Add 90 Minutes"...');
         const clickedAdd = await clickButtonByText(page, 'add 90 minutes');
         
         if (clickedAdd) {
-            await page.waitForTimeout(4000);
+            console.log('✅ 已点击 Add 90 Minutes，等待页面响应...');
+            await page.waitForTimeout(5000);
             
             const frameElement = await page.$('iframe');
             if (frameElement) {
                 console.log('🛡️ 检测到图形验证码弹窗！启动 Buster 音频破解方案...');
                 try {
+                    console.log('🔍 等待验证码iframe加载...');
                     await page.waitForTimeout(2000);
+                    
                     console.log('🎧 切换至音频挑战模式...');
                     const frame = await frameElement.contentFrame();
                     if (frame) {
                         const audioBtn = await frame.$('#recaptcha-audio-button');
-                        if (audioBtn) await audioBtn.click();
+                        if (audioBtn) {
+                            await audioBtn.click();
+                            console.log('✅ 已点击音频挑战按钮');
+                        } else {
+                            console.log('⚠️ 未找到音频挑战按钮');
+                        }
                         await page.waitForTimeout(3000);
                         
                         console.log('🤖 触发 Buster AI 破解...');
                         const solverBtn = await frame.$('#solver-button');
-                        if (solverBtn) await solverBtn.click();
+                        if (solverBtn) {
+                            await solverBtn.click();
+                            console.log('✅ 已触发 Buster 破解按钮');
+                        } else {
+                            console.log('⚠️ 未找到 Buster 破解按钮');
+                        }
                         
-                        console.log('⏳ 正在等待 Buster 请求 API 并完成破解...');
-                        await page.waitForTimeout(15000);
+                        console.log('⏳ 正在等待 Buster 请求 API 并完成破解 (30秒)...');
+                        await page.waitForTimeout(30000);
+                        console.log('✅ Buster 等待完成');
+                    } else {
+                        console.log('⚠️ 无法获取 iframe 内容帧');
                     }
                 } catch (e) {
                     console.log(`⚠️ Buster 破解交互发生异常: ${e.message}`);
@@ -395,7 +424,7 @@ async function runRenewal() {
             
             const screenshotPath = await saveScreenshot(page, screenshotName);
             
-            if (minutesAfter > minutesBefore + 5) {
+            if (minutesAfter > minutesBefore + 3) {
                 const msg = `🟢 <b>G4Free 续期成功！</b>\n\n时间已发生真实增长，Buster 破解与加时操作成功生效！\n⏱️ <b>操作前：</b><code>${timeBefore}</code>\n⏱️ <b>最新时长：</b><code>${timeAfter}</code>`;
                 await sendTgMessage(msg, screenshotPath);
             } else {
