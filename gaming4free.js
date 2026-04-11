@@ -29,36 +29,35 @@ async function sendTgMessage(text, photoPath = null) {
         console.log(`   TG_CHAT_ID: ${TG_CHAT_ID ? '已设置' : '未设置'}`);
         return;
     }
-    try {
-        if (photoPath && fs.existsSync(photoPath)) {
-            console.log(`📸 准备发送截图: ${photoPath}`);
-            const stat = fs.statSync(photoPath);
-            console.log(`📸 文件大小: ${stat.size} bytes`);
+    
+    const tgUrl = `https://api.telegram.org/bot${TG_BOT_TOKEN}`;
+    
+    if (photoPath && fs.existsSync(photoPath)) {
+        console.log(`📸 准备发送截图: ${photoPath}`);
+        try {
+            const captionText = `🎮\n${text}`;
             
-            const FormData = require('form-data');
-            const form = new FormData();
-            form.append('chat_id', TG_CHAT_ID);
-            form.append('photo', fs.createReadStream(photoPath));
-            form.append('caption', `🎮\n${text}`);
-            form.append('parse_mode', 'HTML');
+            const cmd = `curl -s -X POST "${tgUrl}/sendPhoto" -F "chat_id=${TG_CHAT_ID}" -F "photo=@${photoPath};type=image/png" -F "caption=${captionText}" -F "parse_mode=HTML"`;
+            console.log(`📸 执行命令: ${cmd}`);
             
-            const response = await fetch(`https://api.telegram.org/bot${TG_BOT_TOKEN}/sendPhoto`, {
-                method: 'POST',
-                body: form
-            });
-            const result = await response.json();
+            const output = execSync(cmd, { encoding: 'utf8' });
+            console.log(`📸 curl 输出: ${output}`);
+            
+            const result = JSON.parse(output);
             console.log(`📨 TG API 响应: ${JSON.stringify(result)}`);
+            
             if (result.ok) {
-                console.log('📨 Telegram 状态反馈发送成功！');
+                console.log('📨 Telegram 截图发送成功！');
             } else {
-                console.log(`❌ Telegram 发送失败: ${result.description}`);
+                console.log(`❌ Telegram 截图发送失败: ${result.description}`);
                 await sendTgMessageTextOnly(text);
             }
-        } else {
+        } catch (e) {
+            console.log(`❌ Telegram 发送异常: ${e.message}`);
             await sendTgMessageTextOnly(text);
         }
-    } catch (e) {
-        console.log(`❌ Telegram 发送失败: ${e.message}`);
+    } else {
+        await sendTgMessageTextOnly(text);
     }
 }
 
@@ -394,7 +393,7 @@ async function runRenewal() {
             
             const screenshotPath = await saveScreenshot(page, screenshotName);
             
-            if (minutesAfter > minutesBefore + 30) {
+            if (minutesAfter > minutesBefore + 5) {
                 const msg = `🟢 <b>G4Free 续期成功！</b>\n\n时间已发生真实增长，Buster 破解与加时操作成功生效！\n⏱️ <b>操作前：</b><code>${timeBefore}</code>\n⏱️ <b>最新时长：</b><code>${timeAfter}</code>`;
                 await sendTgMessage(msg, screenshotPath);
             } else {
