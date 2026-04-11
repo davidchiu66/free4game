@@ -78,37 +78,87 @@ async function injectCookies(page, cookieStr, domain) {
     console.log(`✅ ${domain} Cookie 预加载完毕！`);
 }
 
-async function clickLinkByText(page, searchText, exactMatch = false) {
-    const links = await page.$$('a');
-    for (const link of links) {
-        const text = await link.textContent();
-        if (text && (exactMatch ? text.trim().toLowerCase() === searchText.toLowerCase() : text.includes(searchText))) {
-            await link.click();
-            return true;
-        }
+async function closeOverlays(page) {
+    const overlays = await page.$$('.fixed.inset-0.z-\\[60\\]');
+    for (const overlay of overlays) {
+        try {
+            await overlay.click({ timeout: 2000 });
+            console.log('✅ 已关闭遮罩层');
+            await page.waitForTimeout(500);
+        } catch {}
     }
-    return false;
-}
-
-async function clickLinkByHref(page, hrefEnd) {
-    const links = await page.$$('a');
-    for (const link of links) {
-        const href = await link.getAttribute('href');
-        if (href && href.endsWith(hrefEnd)) {
-            await link.click();
-            return true;
-        }
-    }
-    return false;
-}
-
-async function clickButtonByText(page, searchText) {
-    const btns = await page.$$('button');
-    for (const btn of btns) {
+    
+    const closeBtns = await page.$$('button');
+    for (const btn of closeBtns) {
         const text = await btn.textContent();
-        if (text && text.toLowerCase().includes(searchText.toLowerCase())) {
-            await btn.click();
-            return true;
+        if (text && /^(close|x|×|cancel|esc)$/i.test(text.trim())) {
+            try {
+                await btn.click();
+                console.log('✅ 已点击关闭按钮');
+                await page.waitForTimeout(500);
+            } catch {}
+        }
+    }
+}
+
+async function clickLinkByText(page, searchText, exactMatch = false, retryCount = 3) {
+    for (let attempt = 0; attempt < retryCount; attempt++) {
+        await closeOverlays(page);
+        
+        const links = await page.$$('a');
+        for (const link of links) {
+            const text = await link.textContent();
+            if (text && (exactMatch ? text.trim().toLowerCase() === searchText.toLowerCase() : text.includes(searchText))) {
+                try {
+                    await link.click({ timeout: 5000 });
+                    return true;
+                } catch (e) {
+                    console.log(`⚠️ 点击尝试 ${attempt + 1} 失败，尝试关闭遮罩层...`);
+                    await page.waitForTimeout(1000);
+                }
+            }
+        }
+    }
+    return false;
+}
+
+async function clickLinkByHref(page, hrefEnd, retryCount = 3) {
+    for (let attempt = 0; attempt < retryCount; attempt++) {
+        await closeOverlays(page);
+        
+        const links = await page.$$('a');
+        for (const link of links) {
+            const href = await link.getAttribute('href');
+            if (href && href.endsWith(hrefEnd)) {
+                try {
+                    await link.click({ timeout: 5000 });
+                    return true;
+                } catch (e) {
+                    console.log(`⚠️ href 点击尝试 ${attempt + 1} 失败...`);
+                    await page.waitForTimeout(1000);
+                }
+            }
+        }
+    }
+    return false;
+}
+
+async function clickButtonByText(page, searchText, retryCount = 3) {
+    for (let attempt = 0; attempt < retryCount; attempt++) {
+        await closeOverlays(page);
+        
+        const btns = await page.$$('button');
+        for (const btn of btns) {
+            const text = await btn.textContent();
+            if (text && text.toLowerCase().includes(searchText.toLowerCase())) {
+                try {
+                    await btn.click({ timeout: 5000 });
+                    return true;
+                } catch (e) {
+                    console.log(`⚠️ 按钮点击尝试 ${attempt + 1} 失败...`);
+                    await page.waitForTimeout(1000);
+                }
+            }
         }
     }
     return false;
@@ -286,12 +336,22 @@ async function runRenewal() {
         
     } catch (e) {
         console.error('❌ 脚本严重报错:', e);
+        let screenshotPath = null;
         try {
             if (driver && page) {
-                const screenshotPath = await saveScreenshot(page, screenshotName);
-                await sendTgMessage(`🔴 <b>脚本严重报错</b>\n<code>${e.message}</code>`, screenshotPath);
-                await driver.close();
+                screenshotPath = await saveScreenshot(page, screenshotName);
             }
+        } catch (screenshotError) {
+            console.log(`⚠️ 截图失败: ${screenshotError.message}`);
+        }
+        try {
+            const errorMsg = e.message.length > 200 ? e.message.substring(0, 200) + '...' : e.message;
+            await sendTgMessage(`🔴 <b>脚本严重报错</b>\n<code>${errorMsg}</code>`, screenshotPath);
+        } catch (tgError) {
+            console.log(`⚠️ TG消息发送失败: ${tgError.message}`);
+        }
+        try {
+            if (driver) await driver.close();
         } catch {}
     }
 }
