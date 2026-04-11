@@ -425,10 +425,10 @@ async function runRenewal() {
             const screenshotPath = await saveScreenshot(page, screenshotName);
             
             if (minutesAfter > minutesBefore + 3) {
-                const msg = `🟢 <b>G4Free 续期成功！</b>\n\n时间已发生真实增长，Buster 破解与加时操作成功生效！\n⏱️ <b>操作前：</b><code>${timeBefore}</code>\n⏱️ <b>最新时长：</b><code>${timeAfter}</code>`;
+                const msg = `🟢 <b>G4Free JS版本续期成功！</b>\n\n时间已发生真实增长，Buster 破解与加时操作成功生效！\n⏱️ <b>操作前：</b><code>${timeBefore}</code>\n⏱️ <b>最新时长：</b><code>${timeAfter}</code>`;
                 await sendTgMessage(msg, screenshotPath);
             } else {
-                const msg = `🔴 <b>假成功警告 (破盾失败)</b>\n\n尝试了 Buster 破解，但服务器未生效(可能插件限流或音频挑战过难)。\n⏱️ <b>操作前：</b><code>${timeBefore}</code>\n⏱️ <b>操作后：</b><code>${timeAfter}</code>`;
+                const msg = `🔴 <b>G4Free JS版本假成功警告 (破盾失败)</b>\n\n尝试了 Buster 破解，但服务器未生效(可能插件限流或音频挑战过难)。\n⏱️ <b>操作前：</b><code>${timeBefore}</code>\n⏱️ <b>操作后：</b><code>${timeAfter}</code>`;
                 await sendTgMessage(msg, screenshotPath);
             }
         } else {
