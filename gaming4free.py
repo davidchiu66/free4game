@@ -299,7 +299,7 @@ def g4free_renewal_task(driver: Driver, data):
             driver.save_screenshot(screenshot_name)
 
             # 【最终审判】计算时差
-            if minutes_after > minutes_before + 30:
+            if minutes_after > minutes_before + 5:
                 msg = (
                     "🟢 <b>G4Free 续期成功！</b>\n\n"
                     "时间已发生真实增长，Buster 破解与加时操作成功生效！\n"
