@@ -301,14 +301,14 @@ def g4free_renewal_task(driver: Driver, data):
             # 【最终审判】计算时差
             if minutes_after > minutes_before + 3:
                 msg = (
-                    "🟢 <b>G4Free 续期成功！</b>\n\n"
+                    "🟢 <b>G4Free py版本续期成功！</b>\n\n"
                     "时间已发生真实增长，Buster 破解与加时操作成功生效！\n"
                     f"⏱️ <b>操作前：</b><code>{time_before}</code>\n"
                     f"⏱️ <b>最新时长：</b><code>{time_after}</code>"
                 )
             else:
                 msg = (
-                    "🔴 <b>假成功警告 (破盾失败)</b>\n\n"
+                    "🔴 <b>G4Free py版本假成功警告 (破盾失败)</b>\n\n"
                     "尝试了 Buster 破解，但服务器未生效(可能插件限流或音频挑战过难)。\n"
                     f"⏱️ <b>操作前：</b><code>{time_before}</code>\n"
                     f"⏱️ <b>操作后：</b><code>{time_after}</code>"
