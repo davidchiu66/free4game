@@ -32,6 +32,15 @@ jobs:
           sudo apt-get install -y ffmpeg
           pip install -q seleniumbase requests pyvirtualdisplay
 
+      # ==========================================
+      # 2. 挂载 WARP 网络 (提升 IP 信誉，降低验证码难度)
+      # ==========================================
+      - name: Setup WARP
+        uses: fscarmen/warp-on-actions@v1.3
+        with:
+          stack: dual
+          mode: client
+
       - name: 配置代理
         env:
           HY2_URL: ${{ secrets.HY2_URL }}
