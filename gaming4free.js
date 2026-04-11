@@ -258,6 +258,8 @@ async function runRenewal() {
         
         driver = await chromium.launch(contextOptions);
         page = await driver.newPage();
+        await page.setViewportSize({ width: 1920, height: 1080 });
+        console.log('🖥️ 浏览器分辨率设置为: 1920x1080');
         
         await injectCookies(page, PANEL_COOKIE, 'panel.gaming4free.net');
         await injectCookies(page, COOKIE, 'gaming4free.net');
