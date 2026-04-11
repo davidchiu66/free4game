@@ -12,20 +12,11 @@ jobs:
     timeout-minutes: 15
 
     steps:
-      # =========================
-      # 🟡 0️⃣ 当前仓库
-      # =========================
-      - uses: actions/checkout@v4
-
-      # =========================
-      # 🟡 ⭐ 私有仓库
-      # =========================
-      - name: Checkout private repo
+      # ==========================================
+      # 1. 获取仓库代码
+      # ==========================================
+      - name: Checkout Code
         uses: actions/checkout@v4
-        with:
-          repository: ${{ github.repository_owner }}/gaming4free-auto
-          token: ${{ secrets.PRIVATE_REPO_TOKEN }}
-          path: scripts
 
       # =========================
       # 🟡 Node环境
@@ -111,7 +102,7 @@ jobs:
           BUSTER_EXTENSION_PATH: ${{ github.workspace }}/scripts/extensions/buster/unpacked
         run: |
           mkdir -p scripts/screenshots
-          xvfb-run -a node scripts/renew.js
+          xvfb-run -a node gaming4free.js
 
       # =========================
       # 🟡 7️⃣ 上传截图
