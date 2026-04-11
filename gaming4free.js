@@ -25,14 +25,11 @@ function getTotalMinutes(timeStr) {
 async function sendTgMessage(text, photoPath = null) {
     if (!TG_BOT_TOKEN || !TG_CHAT_ID) {
         console.log('⚠️ 未配置 Telegram Token 或 Chat ID，跳过消息推送。');
+        console.log(`   TG_BOT_TOKEN: ${TG_BOT_TOKEN ? '已设置' : '未设置'}`);
+        console.log(`   TG_CHAT_ID: ${TG_CHAT_ID ? '已设置' : '未设置'}`);
         return;
     }
     try {
-        const formData = {
-            chat_id: TG_CHAT_ID,
-            text: `🎮\n${text}`,
-            parse_mode: 'HTML'
-        };
         if (photoPath && fs.existsSync(photoPath)) {
             const FormData = require('form-data');
             const form = new FormData();
@@ -40,18 +37,34 @@ async function sendTgMessage(text, photoPath = null) {
             form.append('caption', `🎮\n${text}`);
             form.append('parse_mode', 'HTML');
             form.append('photo', fs.createReadStream(photoPath));
-            await fetch(`https://api.telegram.org/bot${TG_BOT_TOKEN}/sendPhoto`, {
+            
+            const response = await fetch(`https://api.telegram.org/bot${TG_BOT_TOKEN}/sendPhoto`, {
                 method: 'POST',
                 body: form
             });
+            const result = await response.json();
+            if (result.ok) {
+                console.log('📨 Telegram 状态反馈发送成功！');
+            } else {
+                console.log(`❌ Telegram 发送失败: ${result.description}`);
+            }
         } else {
-            await fetch(`https://api.telegram.org/bot${TG_BOT_TOKEN}/sendMessage`, {
+            const response = await fetch(`https://api.telegram.org/bot${TG_BOT_TOKEN}/sendMessage`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(formData)
+                body: JSON.stringify({
+                    chat_id: TG_CHAT_ID,
+                    text: `🎮\n${text}`,
+                    parse_mode: 'HTML'
+                })
             });
+            const result = await response.json();
+            if (result.ok) {
+                console.log('📨 Telegram 状态反馈发送成功！');
+            } else {
+                console.log(`❌ Telegram 发送失败: ${result.description}`);
+            }
         }
-        console.log('📨 Telegram 状态反馈发送成功！');
     } catch (e) {
         console.log(`❌ Telegram 发送失败: ${e.message}`);
     }
@@ -105,19 +118,25 @@ async function clickLinkByText(page, searchText, exactMatch = false, retryCount 
     for (let attempt = 0; attempt < retryCount; attempt++) {
         await closeOverlays(page);
         
-        const links = await page.$$('a');
-        for (const link of links) {
-            const text = await link.textContent();
-            if (text && (exactMatch ? text.trim().toLowerCase() === searchText.toLowerCase() : text.includes(searchText))) {
-                try {
-                    await link.click({ timeout: 5000 });
+        const found = await page.evaluate((searchText, exactMatch) => {
+            const links = document.querySelectorAll('a');
+            for (let i = 0; i < links.length; i++) {
+                const text = links[i].innerText || links[i].textContent;
+                if (text && (exactMatch ? text.trim().toLowerCase() === searchText.toLowerCase() : text.includes(searchText))) {
+                    links[i].removeAttribute('target');
+                    links[i].click();
                     return true;
-                } catch (e) {
-                    console.log(`⚠️ 点击尝试 ${attempt + 1} 失败，尝试关闭遮罩层...`);
-                    await page.waitForTimeout(1000);
                 }
             }
+            return false;
+        }, searchText, exactMatch);
+        
+        if (found) {
+            console.log(`✅ 找到并点击 "${searchText}"`);
+            return true;
         }
+        console.log(`⚠️ 第 ${attempt + 1} 次未找到 "${searchText}"，重试中...`);
+        await page.waitForTimeout(1000);
     }
     return false;
 }
@@ -126,19 +145,24 @@ async function clickLinkByHref(page, hrefEnd, retryCount = 3) {
     for (let attempt = 0; attempt < retryCount; attempt++) {
         await closeOverlays(page);
         
-        const links = await page.$$('a');
-        for (const link of links) {
-            const href = await link.getAttribute('href');
-            if (href && href.endsWith(hrefEnd)) {
-                try {
-                    await link.click({ timeout: 5000 });
+        const found = await page.evaluate((hrefEnd) => {
+            const links = document.querySelectorAll('a');
+            for (let i = 0; i < links.length; i++) {
+                const href = links[i].getAttribute('href');
+                if (href && href.endsWith(hrefEnd)) {
+                    links[i].click();
                     return true;
-                } catch (e) {
-                    console.log(`⚠️ href 点击尝试 ${attempt + 1} 失败...`);
-                    await page.waitForTimeout(1000);
                 }
             }
+            return false;
+        }, hrefEnd);
+        
+        if (found) {
+            console.log(`✅ 通过 href 找到并点击 "${hrefEnd}"`);
+            return true;
         }
+        console.log(`⚠️ 第 ${attempt + 1} 次未找到 href "${hrefEnd}"，重试中...`);
+        await page.waitForTimeout(1000);
     }
     return false;
 }
@@ -147,19 +171,24 @@ async function clickButtonByText(page, searchText, retryCount = 3) {
     for (let attempt = 0; attempt < retryCount; attempt++) {
         await closeOverlays(page);
         
-        const btns = await page.$$('button');
-        for (const btn of btns) {
-            const text = await btn.textContent();
-            if (text && text.toLowerCase().includes(searchText.toLowerCase())) {
-                try {
-                    await btn.click({ timeout: 5000 });
+        const found = await page.evaluate((searchText) => {
+            const btns = document.querySelectorAll('button');
+            for (let i = 0; i < btns.length; i++) {
+                const text = btns[i].innerText || btns[i].textContent;
+                if (text && text.toLowerCase().includes(searchText.toLowerCase())) {
+                    btns[i].click();
                     return true;
-                } catch (e) {
-                    console.log(`⚠️ 按钮点击尝试 ${attempt + 1} 失败...`);
-                    await page.waitForTimeout(1000);
                 }
             }
+            return false;
+        }, searchText);
+        
+        if (found) {
+            console.log(`✅ 找到并点击按钮 "${searchText}"`);
+            return true;
         }
+        console.log(`⚠️ 第 ${attempt + 1} 次未找到按钮 "${searchText}"，重试中...`);
+        await page.waitForTimeout(1000);
     }
     return false;
 }
@@ -167,16 +196,21 @@ async function clickButtonByText(page, searchText, retryCount = 3) {
 async function getTimeInfo(page) {
     const html = await page.content();
     const match = html.match(/suspended.*?in\s*<strong>(.*?)<\/strong>/i);
-    return match ? match[1].trim() : '未知';
+    if (!match) {
+        const match2 = html.match(/suspended.*?in\s*<strong[^>]*>(.*?)<\/strong>/i);
+        return match2 ? match2[1].trim() : '未知';
+    }
+    return match[1].trim();
 }
 
 async function saveScreenshot(page, name) {
-    const screenshotsDir = path.join(__dirname, 'screenshots');
+    const screenshotsDir = path.join(__dirname, 'scripts', 'screenshots');
     if (!fs.existsSync(screenshotsDir)) {
         fs.mkdirSync(screenshotsDir, { recursive: true });
     }
     const filePath = path.join(screenshotsDir, name);
     await page.screenshot({ path: filePath });
+    console.log(`📸 截图已保存: ${filePath}`);
     return filePath;
 }
 
@@ -184,6 +218,15 @@ async function runRenewal() {
     const screenshotName = 'g4free_status.png';
     let driver;
     let page;
+    
+    console.log('='.repeat(50));
+    console.log('🚀 G4Free 续期任务启动');
+    console.log(`   Cookie: ${COOKIE ? '已设置' : '未设置'}`);
+    console.log(`   Panel Cookie: ${PANEL_COOKIE ? '已设置' : '未设置'}`);
+    console.log(`   Account: ${ACCOUNT ? '已设置' : '未设置'}`);
+    console.log(`   TG Token: ${TG_BOT_TOKEN ? '已设置' : '未设置'}`);
+    console.log(`   TG ChatID: ${TG_CHAT_ID ? '已设置' : '未设置'}`);
+    console.log('='.repeat(50));
     
     try {
         console.log('🛡️ 启动浏览器...');
