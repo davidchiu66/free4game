@@ -18,42 +18,58 @@ DASHBOARD_URL = "https://dash.skybots.tech/projects"
 # ... [保留原本的 send_tg_message 和 inject_cookies 函数不变] ...
 
 # ============================================================
-# 新增辅助函数：智能处理自定义验证码
+# 新增辅助函数：智能处理自定义验证码 (加强防御版)
 # ============================================================
 def handle_custom_captcha(driver: Driver):
     """
     点击验证码并智能等待其通过验证
-    返回 True 表示验证通过，False 表示超时或失败
+    增加拟人延迟、双重点击触发和超长等待机制
     """
-    print("☑️ 尝试定位并点击验证码...")
+    print("☑️ 尝试定位并智能处理验证码...")
     try:
-        # 1. 检查验证码元素是否存在于页面上
+        # 1. 检查验证码元素是否存在
         has_captcha = driver.run_js("return !!document.querySelector('.auth-captcha-inner');")
         if not has_captcha:
             print("ℹ️ 页面上未检测到验证码，跳过验证步骤。")
             return True
 
-        # 2. 点击验证码的内部触发区域
-        driver.click(".auth-captcha-inner")
-        
-        # 3. 动态等待状态改变 (最多等待 10 秒)
-        for i in range(10):
+        # 2. 模拟人类行为：页面加载后稍微停顿，避免秒点被识别为机器人
+        print("⏳ 正在等待验证码前端脚本初始化...")
+        driver.sleep(2)
+
+        # 3. 执行点击 (加入异常兜底策略)
+        print("👆 正在模拟点击验证码...")
+        try:
+            # 尝试标准模拟点击
+            driver.click(".auth-captcha-inner")
+        except Exception as e:
+            print(f"⚠️ 常规点击失效，触发 JS 强行点击: {e}")
+            # 如果标准点击被遮挡或失效，使用 JS 直接点击 DOM
+            driver.run_js("document.querySelector('.auth-captcha-inner').click();")
+
+        # 4. 延长动态等待时间 (上限 25 秒)，应对 Actions 网络延迟和后台计算
+        max_wait = 25
+        for i in range(max_wait):
             driver.sleep(1) # 每次循环等待 1 秒
-            # 获取前端 HTML 中的 aria-checked 属性值
-            is_checked = driver.run_js("return document.querySelector('.auth-captcha-inner').getAttribute('aria-checked') === 'true';")
+            
+            # 使用健壮的 JS 脚本获取状态，避免元素刷新导致 None 报错
+            is_checked = driver.run_js("""
+                var el = document.querySelector('.auth-captcha-inner');
+                return el ? el.getAttribute('aria-checked') === 'true' : false;
+            """)
             
             if is_checked:
                 print(f"✅ 验证码已成功勾选！(耗时约 {i+1} 秒)")
-                driver.sleep(0.5) # 稍微缓冲一下，让前端反应过来
+                driver.sleep(1) # 验证通过后再缓冲 1 秒，让页面完全接收状态
                 return True
                 
-        print("⚠️ 验证码点击后未能在预期时间内变为勾选状态，可能遇到了阻断。")
+        print(f"⚠️ 等待了 {max_wait} 秒，验证码仍未变绿。可能是遇到了视觉拼图挑战或环境被严重拦截。")
         return False
         
     except Exception as e:
         print(f"⚠️ 处理验证码时发生意外错误: {e}")
         return False
-
+        
 # ============================================================
 # 4. 核心任务：续期监控与执行 (修改后的逻辑)
 # ============================================================
