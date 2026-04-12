@@ -11,6 +11,9 @@ SKYBOTS_COOKIE = os.environ.get("SKYBOTS_USER_COOKIES", "")
 TG_BOT_TOKEN = os.environ.get("TG_BOT_TOKEN", "")
 TG_CHAT_ID = os.environ.get("TG_CHAT_ID", "")
 
+# 新增代理环境变量获取 (如果没配置，默认留空)
+PROXY_URL = os.environ.get("PROXY_URL", "")
+
 LOGIN_URL = "https://dash.skybots.tech/login"
 DASHBOARD_URL = "https://dash.skybots.tech/projects"
 
@@ -125,7 +128,9 @@ def handle_custom_captcha(driver: Driver):
 # ============================================================
 # 5. 核心任务：续期监控与执行
 # ============================================================
-@browser(headless=True, window_size=(1920, 1080))
+# 在装饰器中增加 proxy 参数。
+# 如果 PROXY_URL 为空，Botasaurus 会自动忽略它；如果有值，则会自动挂载代理。
+@browser(headless=True, window_size=(1920, 1080), proxy=PROXY_URL)
 def skybots_renewal_task(driver: Driver, data):
     screenshot_name = "skybots_status.png"
     screenshot_real_path = os.path.join("output", "screenshots", screenshot_name)
