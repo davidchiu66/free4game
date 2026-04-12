@@ -135,28 +135,49 @@ def skybots_renewal_task(driver: Driver, data):
             # 常规登录流程
             if "login" in current_url_lower:
                 print("🔐 检测到登录页面，正在输入凭据...")
-                # 输入用户名
-                driver.type('#username, input[name="username"]', ACCOUNT)
-                driver.sleep(1)
-                # 输入密码
-                driver.type('#password, input[name="password"]', PASSWORD)
-                driver.sleep(1)
-                # 点击验证码复选框
-                print("☑️ 正在点击验证码...")
-                driver.click(".auth-captcha-box, .auth-captcha-inner")
-                driver.sleep(6)
-                # 点击提交按钮
-                driver.click('button[type="submit"]')
-                driver.sleep(10)
-                current_url_lower = driver.current_url.lower()
+                captcha_retry = 0
+                max_captcha_retry = 6
+                login_success = False
 
-            if "login" in current_url_lower or "setup-password" in current_url_lower:
-                driver.save_screenshot(screenshot_name)
-                send_tg_message(
-                    "🔴 <b>兜底登录失败</b>\n可能遭遇了极强的风控或账号密码错误，请检查截图。",
-                    screenshot_real_path,
-                )
-                return
+                while captcha_retry < max_captcha_retry and not login_success:
+                    captcha_retry += 1
+                    print(f"☑️ 尝试点击验证码 ({captcha_retry}/{max_captcha_retry})...")
+
+                    # 输入用户名
+                    driver.type('#username, input[name="username"]', ACCOUNT)
+                    driver.sleep(0.5)
+                    # 输入密码
+                    driver.type('#password, input[name="password"]', PASSWORD)
+                    driver.sleep(0.5)
+                    # 点击验证码复选框
+                    driver.click(".auth-captcha-box, .auth-captcha-inner")
+                    driver.sleep(3)
+                    # 点击提交按钮
+                    driver.click('button[type="submit"]')
+                    driver.sleep(10)
+                    current_url_lower = driver.current_url.lower()
+
+                    # 检查是否成功登录（不再在 login 页面）
+                    if (
+                        "login" not in current_url_lower
+                        and "setup-password" not in current_url_lower
+                    ):
+                        login_success = True
+                        print("✅ 登录成功！")
+                        break
+
+                    print(f"⚠️ 验证码尝试 {captcha_retry} 失败，重试中...")
+                    # 刷新页面重新尝试
+                    driver.get(LOGIN_URL)
+                    driver.sleep(6)
+
+                if not login_success:
+                    driver.save_screenshot(screenshot_name)
+                    send_tg_message(
+                        "🔴 <b>登录失败</b>\n验证码尝试 6 次均失败，请检查截图。",
+                        screenshot_real_path,
+                    )
+                    return
 
         # 第三阶段：利用精确的 CSS 类名提取时间信息
         print("✅ 成功进入面板，正在精准提取服务器时间信息...")
