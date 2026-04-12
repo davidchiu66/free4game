@@ -30,6 +30,8 @@ jobs:
           SKYBOTS_PASSWORD: ${{ secrets.SKYBOTS_PASSWORD }}
           TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+          # 【新增】将 GitHub Secret 中的代理地址传递给 Python 环境
+          PROXY_URL: ${{ secrets.PROXY_URL }}
         run: python skybots.py
 
       - name: Upload Time Record (Optional)
