@@ -1,0 +1,50 @@
+name: Skybots 自动续期
+
+on:
+  workflow_dispatch: # 允许你在网页端手动点击按钮触发测试
+  schedule:
+    - cron: '0 * * * *' # 标准 Cron 语法：每隔 1 小时的第 0 分钟执行一次
+
+jobs:
+  renew-server:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        # 顺便把 Checkout 也升级到官方最新的 v4 版本，提升稳定性
+        uses: actions/checkout@v4
+
+      # ==========================================
+      # 2. 挂载 WARP 网络 (提升 IP 信誉，降低验证码难度)
+      # ==========================================
+      - name: Setup WARP
+        uses: fscarmen/warp-on-actions@v1.3
+        with:
+          stack: dual
+          mode: client
+
+      - name: Setup Python 3.10
+        # 同理，将 Python 环境配置升级到 v5
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install Dependencies
+        run: |
+          pip install botasaurus==4.0.97 requests==2.31.0
+
+      - name: Run Botasaurus Script
+        env:
+          SKYBOTS_USER_COOKIES: ${{ secrets.SKYBOTS_USER_COOKIES }}
+          SKYBOTS_ACCOUNT: ${{ secrets.SKYBOTS_ACCOUNT }}
+          SKYBOTS_PASSWORD: ${{ secrets.SKYBOTS_PASSWORD }}
+          TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
+          TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+        run: python skybots.py
+
+      - name: Upload Time Record (Optional)
+        # 【核心修复点】：将 v3 升级为 v4，解决弃用报错
+        uses: actions/upload-artifact@v4
+        with:
+          name: expiration-time
+          path: next_time.txt
+          retention-days: 1
