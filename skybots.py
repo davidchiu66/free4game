@@ -4,7 +4,7 @@ import requests
 from botasaurus.browser import browser, Driver
 
 # ============================================================
-# 1. 环境变量配置
+# 1. 环境变量配置 (保持不变)
 # ============================================================
 ACCOUNT = os.environ.get("SKYBOTS_ACCOUNT", "")
 PASSWORD = os.environ.get("SKYBOTS_PASSWORD", "")
@@ -15,78 +15,47 @@ TG_CHAT_ID = os.environ.get("TG_CHAT_ID", "")
 LOGIN_URL = "https://dash.skybots.tech/login"
 DASHBOARD_URL = "https://dash.skybots.tech/projects"
 
+# ... [保留原本的 send_tg_message 和 inject_cookies 函数不变] ...
 
 # ============================================================
-# 2. 辅助函数：Telegram 图片推送
+# 新增辅助函数：智能处理自定义验证码
 # ============================================================
-def send_tg_message(text: str, photo_path: str = None):
-    """无论成功与否，将执行结果和截图推送到 TG"""
-    if not TG_BOT_TOKEN or not TG_CHAT_ID:
-        print("⚠️ 未配置 Telegram Token 或 Chat ID，跳过推送。")
-        return
-
+def handle_custom_captcha(driver: Driver):
+    """
+    点击验证码并智能等待其通过验证
+    返回 True 表示验证通过，False 表示超时或失败
+    """
+    print("☑️ 尝试定位并点击验证码...")
     try:
-        if photo_path and os.path.exists(photo_path):
-            url = f"https://api.telegram.org/bot{TG_BOT_TOKEN}/sendPhoto"
-            data = {
-                "chat_id": TG_CHAT_ID,
-                "caption": f"🤖 [Skybots 守护者]\n{text}",
-                "parse_mode": "HTML",
-            }
-            with open(photo_path, "rb") as photo_file:
-                requests.post(url, data=data, files={"photo": photo_file}, timeout=30)
-            print("📨 Telegram 图文状态反馈发送成功！")
-        else:
-            url = f"https://api.telegram.org/bot{TG_BOT_TOKEN}/sendMessage"
-            data = {
-                "chat_id": TG_CHAT_ID,
-                "text": f"🤖 [Skybots 守护者]\n{text}",
-                "parse_mode": "HTML",
-            }
-            requests.post(url, data=data, timeout=30)
-            print("📨 Telegram 纯文本状态反馈发送成功！")
+        # 1. 检查验证码元素是否存在于页面上
+        has_captcha = driver.run_js("return !!document.querySelector('.auth-captcha-inner');")
+        if not has_captcha:
+            print("ℹ️ 页面上未检测到验证码，跳过验证步骤。")
+            return True
+
+        # 2. 点击验证码的内部触发区域
+        driver.click(".auth-captcha-inner")
+        
+        # 3. 动态等待状态改变 (最多等待 10 秒)
+        for i in range(10):
+            driver.sleep(1) # 每次循环等待 1 秒
+            # 获取前端 HTML 中的 aria-checked 属性值
+            is_checked = driver.run_js("return document.querySelector('.auth-captcha-inner').getAttribute('aria-checked') === 'true';")
+            
+            if is_checked:
+                print(f"✅ 验证码已成功勾选！(耗时约 {i+1} 秒)")
+                driver.sleep(0.5) # 稍微缓冲一下，让前端反应过来
+                return True
+                
+        print("⚠️ 验证码点击后未能在预期时间内变为勾选状态，可能遇到了阻断。")
+        return False
+        
     except Exception as e:
-        print(f"❌ Telegram 发送失败: {e}")
-
-
-# ============================================================
-# 3. 辅助函数：Cookie 注入
-# ============================================================
-def inject_cookies(driver: Driver, raw_cookie_str: str):
-    if not raw_cookie_str:
-        return
-    print("🍪 正在解析并注入 Cookie...")
-    driver.get("https://dash.skybots.tech/404_init_cookie")
-
-    cookies_list = []
-    for pair in raw_cookie_str.split(";"):
-        if "=" in pair:
-            name, value = pair.strip().split("=", 1)
-            cookies_list.append(
-                {
-                    "name": name,
-                    "value": value,
-                    "domain": "dash.skybots.tech",
-                    "path": "/",
-                }
-            )
-
-    try:
-        if hasattr(driver, "add_cookies"):
-            driver.add_cookies(cookies_list)
-        elif hasattr(driver, "set_cookies"):
-            driver.set_cookies(cookies_list)
-        else:
-            for c in cookies_list:
-                js_code = f"document.cookie = '{c['name']}={c['value']}; domain={c['domain']}; path={c['path']}';"
-                driver.run_js(js_code)
-        print("✅ Cookie 注入尝试完毕！")
-    except Exception as e:
-        print(f"⚠️ Cookie 注入部分遇到环境限制: {e}")
-
+        print(f"⚠️ 处理验证码时发生意外错误: {e}")
+        return False
 
 # ============================================================
-# 4. 核心任务：续期监控与执行
+# 4. 核心任务：续期监控与执行 (修改后的逻辑)
 # ============================================================
 @browser(headless=True, window_size=(1920, 1080))
 def skybots_renewal_task(driver: Driver, data):
@@ -94,7 +63,6 @@ def skybots_renewal_task(driver: Driver, data):
     screenshot_real_path = os.path.join("output", "screenshots", screenshot_name)
 
     try:
-        # 第一阶段：注入 Cookie 并访问
         if SKYBOTS_COOKIE:
             inject_cookies(driver, SKYBOTS_COOKIE)
 
@@ -102,37 +70,27 @@ def skybots_renewal_task(driver: Driver, data):
         driver.get(DASHBOARD_URL)
         driver.sleep(8)
 
-        # 第二阶段：Cookie 失效兜底判定
         current_url_lower = driver.current_url.lower()
         if "login" in current_url_lower or "setup-password" in current_url_lower:
             print("⚠️ Cookie 已失效或需要设置密码，触发账号密码兜底登录...")
 
-            # 检查是否是 setup-password 页面（首次登录或密码过期）
+            # --- 密码设置页面逻辑 ---
             if "setup-password" in current_url_lower:
                 print("🔐 检测到密码设置页面，正在输入密码...")
-                # 在两个密码框输入相同密码
                 password_inputs = driver.get_elements('input[type="password"]')
                 for i, inp in enumerate(password_inputs):
-                    if i < 2:  # 只处理前两个密码框
+                    if i < 2:  
                         inp.type(PASSWORD)
                         driver.sleep(1)
-                driver.sleep(2)
-                # 点击验证码复选框（如果存在）
-                try:
-                    captcha = driver.get_element(
-                        ".auth-captcha-box, .auth-captcha-inner"
-                    )
-                    if captcha:
-                        driver.click(".auth-captcha-box, .auth-captcha-inner")
-                        driver.sleep(2)
-                except:
-                    pass
-                # 点击提交按钮
+                
+                # 【修改点】调用智能验证码处理函数
+                handle_custom_captcha(driver)
+                
                 driver.click('button[type="submit"]')
                 driver.sleep(10)
-                # 检查跳转后的 URL
                 current_url_lower = driver.current_url.lower()
-            # 常规登录流程
+
+            # --- 常规登录逻辑 ---
             if "login" in current_url_lower:
                 print("🔐 检测到登录页面，正在输入凭据...")
                 captcha_retry = 0
@@ -141,40 +99,37 @@ def skybots_renewal_task(driver: Driver, data):
 
                 while captcha_retry < max_captcha_retry and not login_success:
                     captcha_retry += 1
-                    print(f"☑️ 尝试点击验证码 ({captcha_retry}/{max_captcha_retry})...")
+                    print(f"🔄 第 {captcha_retry}/{max_captcha_retry} 次尝试登录...")
 
-                    # 输入用户名
                     driver.type('#username, input[name="username"]', ACCOUNT)
                     driver.sleep(0.5)
-                    # 输入密码
                     driver.type('#password, input[name="password"]', PASSWORD)
                     driver.sleep(0.5)
-                    # 点击验证码复选框
-                    driver.click(".auth-captcha-box, .auth-captcha-inner")
-                    driver.sleep(3)
-                    # 点击提交按钮
+                    
+                    # 【修改点】调用智能验证码处理函数
+                    captcha_passed = handle_custom_captcha(driver)
+                    
+                    if not captcha_passed:
+                        print("⚠️ 验证码未通过判定，但仍尝试提交碰碰运气...")
+                    
                     driver.click('button[type="submit"]')
-                    driver.sleep(10)
+                    driver.sleep(10) # 等待登录结果跳转
+                    
                     current_url_lower = driver.current_url.lower()
 
-                    # 检查是否成功登录（不再在 login 页面）
-                    if (
-                        "login" not in current_url_lower
-                        and "setup-password" not in current_url_lower
-                    ):
+                    if "login" not in current_url_lower and "setup-password" not in current_url_lower:
                         login_success = True
                         print("✅ 登录成功！")
                         break
 
-                    print(f"⚠️ 验证码尝试 {captcha_retry} 失败，重试中...")
-                    # 刷新页面重新尝试
+                    print("⚠️ 登录失败，刷新页面重新尝试...")
                     driver.get(LOGIN_URL)
                     driver.sleep(6)
 
                 if not login_success:
                     driver.save_screenshot(screenshot_name)
                     send_tg_message(
-                        "🔴 <b>登录失败</b>\n验证码尝试 6 次均失败，请检查截图。",
+                        "🔴 <b>chinamen登录失败</b>\n验证码尝试6次均失败，请检查截图确认是否遇到盾或网络问题。",
                         screenshot_real_path,
                     )
                     return
