@@ -80,7 +80,6 @@ jobs:
       - name: Run G4Free Renewal Script
         env:
           # 映射 GitHub Secrets 到系统环境变量
-          G4FREE_USER_COOKIE: ${{ secrets.G4FREE_USER_COOKIE }}
           G4FREE_PANEL_COOKIE: ${{ secrets.G4FREE_PANEL_COOKIE }}
           G4FREE_ACCOUNT: ${{ secrets.G4FREE_ACCOUNT }}
           G4FREE_PASSWORD: ${{ secrets.G4FREE_PASSWORD }}
@@ -89,3 +88,14 @@ jobs:
           BUSTER_EXTENSION_PATH: ${{ github.workspace }}/extensions/buster/unpacked
         # 使用 xvfb-run 将 Python 脚本包裹在虚拟显示器中运行
         run: xvfb-run -a python gaming4free.py
+
+      - name: Upload Screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: g4free-screenshots-${{ github.run_number }}
+          path: |
+            output/screenshots/*.png
+            g4free_status.png
+          retention-days: 7
+          if-no-files-found: ignore
