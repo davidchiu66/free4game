@@ -63,6 +63,20 @@ def save_status_screenshot(driver: Driver, stage: str = "status") -> str | None:
     screenshot_path = os.path.join("output", "screenshots", filename)
 
     try:
+        viewport_ready = bool(
+            driver.run_js(
+                """
+                return !!document.body && window.innerWidth > 0 && window.innerHeight > 0;
+                """
+            )
+        )
+        if not viewport_ready:
+            log(f"Skipping screenshot for {stage} because the page viewport is not ready yet.")
+            return None
+    except Exception:
+        pass
+
+    try:
         os.makedirs(os.path.dirname(screenshot_path), exist_ok=True)
         driver.save_screenshot(screenshot_path)
         try:
@@ -183,6 +197,42 @@ def has_recaptcha_anchor_frame(driver: Driver) -> bool:
 
 def has_recaptcha_challenge_frame(driver: Driver) -> bool:
     return wait_for_recaptcha_frame(driver, "iframe[src*='recaptcha/api2/bframe']", 4)
+
+
+def wait_for_login_recaptcha(driver: Driver, timeout_seconds: int = 20) -> bool:
+    deadline = time.time() + timeout_seconds
+    while time.time() < deadline:
+        if has_recaptcha_challenge_frame(driver):
+            return True
+
+        try:
+            badge_present = bool(
+                driver.run_js(
+                    """
+                    return !!document.querySelector(".grecaptcha-badge, iframe[src*='recaptcha'], div.g-recaptcha');
+                    """
+                )
+            )
+        except Exception:
+            badge_present = False
+
+        if badge_present:
+            try:
+                driver.run_js(
+                    """
+                    const badge = document.querySelector(".grecaptcha-badge");
+                    if (badge) {
+                        badge.style.visibility = "visible";
+                        badge.style.opacity = "1";
+                    }
+                    """
+                )
+            except Exception:
+                pass
+
+        driver.sleep(1)
+
+    return has_recaptcha_challenge_frame(driver)
 
 
 def find_recaptcha_anchor_frame(driver: Driver):
@@ -362,13 +412,14 @@ def solve_recaptcha_with_buster_once(driver: Driver) -> bool:
     if is_recaptcha_solved(driver):
         return True
 
-    if has_recaptcha_anchor_frame(driver) and not click_recaptcha_checkbox(driver):
-        return False
+    if has_recaptcha_anchor_frame(driver):
+        if not click_recaptcha_checkbox(driver):
+            return False
 
-    driver.sleep(4)
-    if is_recaptcha_solved(driver):
-        log("reCAPTCHA solved by checkbox only.")
-        return True
+        driver.sleep(4)
+        if is_recaptcha_solved(driver):
+            log("reCAPTCHA solved by checkbox only.")
+            return True
 
     if has_recaptcha_challenge_frame(driver) or wait_for_recaptcha_frame(
         driver, "iframe[src*='recaptcha/api2/bframe']", 10
@@ -501,6 +552,18 @@ def prepare_login_form(driver: Driver, stage: str = "login_page_loaded") -> bool
     return True
 
 
+def resubmit_login_for_recaptcha(driver: Driver, stage: str = "login_page_reloaded") -> bool:
+    if not prepare_login_form(driver, stage):
+        return False
+    if not click_login_button(driver):
+        save_status_screenshot(driver, "login_retry_button_not_found")
+        return False
+    save_status_screenshot(driver, "login_retry_submitted")
+    driver.sleep(8)
+    save_status_screenshot(driver, "login_reloaded_after_submit")
+    return wait_for_login_recaptcha(driver, 8)
+
+
 def login_with_account_password(driver: Driver) -> bool:
     if not ACCOUNT or not PASSWORD:
         log("Account/password are not configured, cannot fall back to form login.")
@@ -509,18 +572,6 @@ def login_with_account_password(driver: Driver) -> bool:
     log("Falling back to account/password login.")
     if not prepare_login_form(driver):
         return False
-
-    recaptcha_present = has_recaptcha_anchor_frame(driver) or has_recaptcha_challenge_frame(driver)
-    if recaptcha_present:
-        log("reCAPTCHA detected on login page, switching to audio mode and invoking Buster.")
-        if not solve_recaptcha_with_retries(
-            driver,
-            "login",
-            reset_action=lambda: prepare_login_form(driver, "login_page_reloaded"),
-        ):
-            log("Failed to solve login reCAPTCHA.")
-            save_status_screenshot(driver, "login_recaptcha_failed")
-            return False
 
     if not click_login_button(driver):
         log("Login button was not found.")
@@ -531,21 +582,23 @@ def login_with_account_password(driver: Driver) -> bool:
     driver.sleep(8)
     save_status_screenshot(driver, "login_after_submit")
 
-    if is_login_page(driver) and (has_recaptcha_anchor_frame(driver) or has_recaptcha_challenge_frame(driver)):
-        log("Still on login page after submit, retrying once with reCAPTCHA solve flow.")
-        save_status_screenshot(driver, "login_still_on_login_page")
+    if is_login_page(driver) and wait_for_login_recaptcha(driver, 8):
+        log("Login submit triggered reCAPTCHA challenge, starting audio-mode solve flow.")
+        save_status_screenshot(driver, "login_recaptcha_detected_after_submit")
         if not solve_recaptcha_with_retries(
             driver,
-            "login_post_submit",
-            reset_action=lambda: prepare_login_form(driver, "login_post_submit_reloaded"),
+            "login",
+            reset_action=lambda: resubmit_login_for_recaptcha(driver, "login_page_reloaded"),
         ):
+            log("Failed to solve login reCAPTCHA.")
+            save_status_screenshot(driver, "login_recaptcha_failed")
             return False
-        if not click_login_button(driver):
-            save_status_screenshot(driver, "login_retry_button_not_found")
-            return False
-        save_status_screenshot(driver, "login_retry_submitted")
-        driver.sleep(8)
-        save_status_screenshot(driver, "login_retry_after_submit")
+
+    if is_login_page(driver) and not has_recaptcha_challenge_frame(driver):
+        log("Still on login page after submit without visible challenge.")
+        save_status_screenshot(driver, "login_still_on_login_page")
+        save_status_screenshot(driver, "login_no_challenge_after_submit")
+        return False
 
     return not is_login_page(driver)
 
