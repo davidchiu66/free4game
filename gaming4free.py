@@ -160,6 +160,21 @@ def is_login_page(driver: Driver) -> bool:
     except Exception:
         current_url = ""
 
+    if "/server/" in current_url or "/dashboard" in current_url or "/console" in current_url:
+        return False
+
+    page_text = get_page_text(driver).lower()
+    logged_in_markers = [
+        "server list",
+        "free server claimed",
+        "console",
+        "overview",
+        "renew server",
+        "my minecraft java server",
+    ]
+    if any(marker in page_text for marker in logged_in_markers):
+        return False
+
     if "/auth/login" in current_url:
         return True
 
@@ -175,7 +190,7 @@ def is_login_page(driver: Driver) -> bool:
                     document.querySelectorAll("button, input[type='submit']")
                 ).some((element) => {
                     const text = (element.innerText || element.textContent || element.value || "").trim().toLowerCase();
-                    return text.includes("login") || text.includes("sign in");
+                    return text === "login" || text.includes("sign in");
                 });
                 return !!(username && password && loginButton);
                 """
@@ -767,7 +782,10 @@ def ensure_panel_logged_in(driver: Driver) -> bool:
     driver.sleep(6)
     save_status_screenshot(driver, "panel_opened")
 
-    if not is_login_page(driver):
+    login_state = is_login_page(driver)
+    log(f"Initial panel state classified as login_page={login_state}")
+
+    if not login_state:
         log("Panel cookie login succeeded.")
         save_status_screenshot(driver, "panel_cookie_login_success")
         return True
