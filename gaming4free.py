@@ -155,14 +155,14 @@ def get_total_minutes(time_str: str) -> int:
     return hours * 60 + minutes
 
 
-def is_login_page(driver: Driver) -> bool:
+def is_panel_logged_in_state(driver: Driver) -> bool:
     try:
         current_url = driver.current_url.lower()
     except Exception:
         current_url = ""
 
     if "/server/" in current_url or "/dashboard" in current_url or "/console" in current_url:
-        return False
+        return True
 
     page_text = get_page_text(driver).lower()
     logged_in_markers = [
@@ -174,6 +174,34 @@ def is_login_page(driver: Driver) -> bool:
         "my minecraft java server",
     ]
     if any(marker in page_text for marker in logged_in_markers):
+        return True
+
+    try:
+        return bool(
+            driver.run_js(
+                """
+                const selectors = [
+                    "a[href^='/server/']",
+                    "a[href*='/console']",
+                    "[class*='ServerRow']",
+                    "[class*='DashboardContainer']",
+                    "[class*='ServerList']"
+                ];
+                return selectors.some((selector) => !!document.querySelector(selector));
+                """
+            )
+        )
+    except Exception:
+        return False
+
+
+def is_login_page(driver: Driver) -> bool:
+    try:
+        current_url = driver.current_url.lower()
+    except Exception:
+        current_url = ""
+
+    if is_panel_logged_in_state(driver):
         return False
 
     if "/auth/login" in current_url:
@@ -232,6 +260,9 @@ def is_recaptcha_checkbox_ready(driver: Driver) -> bool:
 def wait_for_login_recaptcha(driver: Driver, timeout_seconds: int = 20) -> bool:
     deadline = time.time() + timeout_seconds
     while time.time() < deadline:
+        if is_panel_logged_in_state(driver):
+            return False
+
         if has_recaptcha_challenge_frame(driver):
             return True
 
@@ -261,6 +292,9 @@ def wait_for_login_recaptcha(driver: Driver, timeout_seconds: int = 20) -> bool:
                 pass
 
         driver.sleep(1)
+
+    if is_panel_logged_in_state(driver):
+        return False
 
     return has_recaptcha_challenge_frame(driver)
 
@@ -382,6 +416,8 @@ def is_ad_gate_present(driver: Driver) -> bool:
     return bool(get_ad_gate_state(driver).get("present"))
 
 
+# Legacy helpers retained only as dead code because the old block contains a
+# mojibake character that makes automated deletion brittle in this environment.
 def _legacy_close_ad_gate_if_possible(driver: Driver) -> bool:
     try:
         return bool(
@@ -468,6 +504,7 @@ def _legacy_wait_for_renew_interactive_state(driver: Driver, timeout_seconds: in
     return "none"
 
 
+# Active ad-gate implementation used by the renew flow.
 def close_ad_gate_if_possible(driver: Driver, force: bool = False) -> bool:
     try:
         return bool(
@@ -974,6 +1011,11 @@ def prepare_login_form(driver: Driver, stage: str = "login_page_loaded") -> bool
 
 
 def resubmit_login_for_recaptcha(driver: Driver, stage: str = "login_page_reloaded") -> bool:
+    if is_panel_logged_in_state(driver):
+        log("Panel is already logged in before login reCAPTCHA retry.")
+        save_status_screenshot(driver, "login_retry_already_logged_in")
+        return True
+
     if not prepare_login_form(driver, stage):
         return False
     if not click_login_button(driver):
@@ -982,6 +1024,10 @@ def resubmit_login_for_recaptcha(driver: Driver, stage: str = "login_page_reload
     save_status_screenshot(driver, "login_retry_submitted")
     driver.sleep(8)
     save_status_screenshot(driver, "login_reloaded_after_submit")
+    if is_panel_logged_in_state(driver):
+        log("Panel became logged in after login retry submit.")
+        save_status_screenshot(driver, "login_retry_logged_in_after_submit")
+        return True
     return wait_for_login_recaptcha(driver, 8)
 
 
@@ -1003,6 +1049,11 @@ def login_with_account_password(driver: Driver) -> bool:
     driver.sleep(8)
     save_status_screenshot(driver, "login_after_submit")
 
+    if is_panel_logged_in_state(driver):
+        log("Panel login succeeded immediately after submitting credentials.")
+        save_status_screenshot(driver, "login_success_after_submit")
+        return True
+
     if is_login_page(driver) and wait_for_login_recaptcha(driver, 8):
         log("Login submit triggered reCAPTCHA challenge, starting audio-mode solve flow.")
         save_status_screenshot(driver, "login_recaptcha_detected_after_submit")
@@ -1015,11 +1066,22 @@ def login_with_account_password(driver: Driver) -> bool:
             save_status_screenshot(driver, "login_recaptcha_failed")
             return False
 
+        driver.sleep(5)
+        save_status_screenshot(driver, "login_after_recaptcha")
+        if is_panel_logged_in_state(driver):
+            log("Panel login succeeded after reCAPTCHA solve.")
+            save_status_screenshot(driver, "login_success_after_recaptcha")
+            return True
+
     if is_login_page(driver) and not has_recaptcha_challenge_frame(driver):
         log("Still on login page after submit without visible challenge.")
         save_status_screenshot(driver, "login_still_on_login_page")
         save_status_screenshot(driver, "login_no_challenge_after_submit")
         return False
+
+    if is_panel_logged_in_state(driver):
+        save_status_screenshot(driver, "login_success_final_check")
+        return True
 
     return not is_login_page(driver)
 
@@ -1034,6 +1096,11 @@ def ensure_panel_logged_in(driver: Driver) -> bool:
     driver.get(PANEL_URL)
     driver.sleep(6)
     save_status_screenshot(driver, "panel_opened")
+
+    if is_panel_logged_in_state(driver):
+        log("Panel cookie login succeeded based on logged-in state detection.")
+        save_status_screenshot(driver, "panel_cookie_login_success")
+        return True
 
     login_state = is_login_page(driver)
     log(f"Initial panel state classified as login_page={login_state}")
