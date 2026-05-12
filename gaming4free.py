@@ -18,6 +18,9 @@ SCREENSHOT_PATH = os.path.join("output", "screenshots", SCREENSHOT_NAME)
 POST_SOLVE_WAIT_SECONDS = 18
 MAX_CAPTCHA_WAIT_SECONDS = 30
 MAX_RECAPTCHA_RETRIES = 3
+RENEW_INTERACTIVE_WAIT_SECONDS = 45
+RENEW_AD_PLAY_WAIT_SECONDS = 120
+RECAPTCHA_CHALLENGE_WAIT_SECONDS = 25
 
 
 def log(message: str):
@@ -199,6 +202,17 @@ def has_recaptcha_challenge_frame(driver: Driver) -> bool:
     return wait_for_recaptcha_frame(driver, "iframe[src*='recaptcha/api2/bframe']", 4)
 
 
+def is_recaptcha_checkbox_ready(driver: Driver) -> bool:
+    if not has_recaptcha_anchor_frame(driver):
+        return False
+
+    try:
+        anchor = find_recaptcha_anchor_frame(driver)
+        return bool(anchor.run_js("return !!document.querySelector('#recaptcha-anchor');"))
+    except Exception:
+        return False
+
+
 def wait_for_login_recaptcha(driver: Driver, timeout_seconds: int = 20) -> bool:
     deadline = time.time() + timeout_seconds
     while time.time() < deadline:
@@ -233,6 +247,128 @@ def wait_for_login_recaptcha(driver: Driver, timeout_seconds: int = 20) -> bool:
         driver.sleep(1)
 
     return has_recaptcha_challenge_frame(driver)
+
+
+def wait_for_recaptcha_ready_state(driver: Driver, timeout_seconds: int = RECAPTCHA_CHALLENGE_WAIT_SECONDS) -> str:
+    deadline = time.time() + timeout_seconds
+
+    while time.time() < deadline:
+        if is_audio_challenge_visible(driver) or is_visual_challenge_visible(driver):
+            return "challenge"
+        if is_recaptcha_checkbox_ready(driver):
+            return "anchor"
+        if has_recaptcha_challenge_frame(driver):
+            return "challenge"
+        driver.sleep(1)
+
+    if is_audio_challenge_visible(driver) or is_visual_challenge_visible(driver) or has_recaptcha_challenge_frame(driver):
+        return "challenge"
+    if is_recaptcha_checkbox_ready(driver):
+        return "anchor"
+    return "none"
+
+
+def is_ad_gate_present(driver: Driver) -> bool:
+    try:
+        return bool(
+            driver.run_js(
+                r"""
+                const text = (document.body ? document.body.innerText : '').toLowerCase();
+                const markers = ['powered by adinplay', 'play now', 'world of tanks', 'adinplay'];
+                const hasMarker = markers.some((marker) => text.includes(marker));
+                const hasTimer = /\b\d{2}:\d{2}\s*\/\s*\d{2}:\d{2}\b/.test(text);
+                return hasMarker || hasTimer;
+                """
+            )
+        )
+    except Exception:
+        return False
+
+
+def close_ad_gate_if_possible(driver: Driver) -> bool:
+    try:
+        return bool(
+            driver.run_js(
+                """
+                const directSelectors = [
+                    "[aria-label*='close' i]",
+                    "[title*='close' i]",
+                    ".close",
+                    ".btn-close",
+                    "[class*='close']"
+                ];
+                for (const selector of directSelectors) {
+                    const element = document.querySelector(selector);
+                    if (element) {
+                        element.click();
+                        return true;
+                    }
+                }
+
+                const candidates = Array.from(document.querySelectorAll("button, a, div, span"));
+                for (const element of candidates) {
+                    const text = (element.innerText || element.textContent || "").trim().toLowerCase();
+                    if (!["x", "×", "close", "skip"].includes(text)) {
+                        continue;
+                    }
+
+                    const rect = element.getBoundingClientRect();
+                    if (rect.width > 80 || rect.height > 80) {
+                        continue;
+                    }
+
+                    const style = window.getComputedStyle(element);
+                    if (!["fixed", "absolute", "sticky"].includes(style.position)) {
+                        continue;
+                    }
+
+                    element.click();
+                    return true;
+                }
+                return false;
+                """
+            )
+        )
+    except Exception:
+        return False
+
+
+def wait_for_renew_interactive_state(driver: Driver, timeout_seconds: int = RENEW_INTERACTIVE_WAIT_SECONDS) -> str:
+    deadline = time.time() + timeout_seconds
+    ad_seen = False
+
+    while time.time() < deadline:
+        if is_audio_challenge_visible(driver) or is_visual_challenge_visible(driver):
+            return "challenge"
+
+        if is_recaptcha_checkbox_ready(driver):
+            return "anchor"
+
+        if has_recaptcha_challenge_frame(driver):
+            return "challenge"
+
+        if is_ad_gate_present(driver):
+            if not ad_seen:
+                log("Ad gate detected after renew click; waiting for it to finish or close.")
+                save_status_screenshot(driver, "renew_ad_gate_detected")
+            ad_seen = True
+            if close_ad_gate_if_possible(driver):
+                log("Clicked ad gate close button.")
+                driver.sleep(2)
+            else:
+                driver.sleep(2)
+            continue
+
+        close_ad_gate_if_possible(driver)
+        driver.sleep(1)
+
+    if is_audio_challenge_visible(driver) or is_visual_challenge_visible(driver) or has_recaptcha_challenge_frame(driver):
+        return "challenge"
+    if is_recaptcha_checkbox_ready(driver):
+        return "anchor"
+    if is_ad_gate_present(driver):
+        return "ad"
+    return "none"
 
 
 def find_recaptcha_anchor_frame(driver: Driver):
@@ -299,18 +435,30 @@ def is_visual_challenge_visible(driver: Driver) -> bool:
 
 
 def click_recaptcha_checkbox(driver: Driver) -> bool:
-    if not wait_for_recaptcha_frame(driver, "iframe[src*='recaptcha/api2/anchor']", 25):
-        log("reCAPTCHA anchor frame not found.")
-        return False
+    deadline = time.time() + 25
+    last_error = ""
 
-    try:
-        anchor = find_recaptcha_anchor_frame(driver)
-        anchor.click("#recaptcha-anchor")
-        driver.sleep(3)
-        return True
-    except Exception as exc:
-        log(f"Failed to click reCAPTCHA checkbox: {exc}")
-        return False
+    while time.time() < deadline:
+        if not has_recaptcha_anchor_frame(driver):
+            driver.sleep(1)
+            continue
+
+        try:
+            anchor = find_recaptcha_anchor_frame(driver)
+            ready = bool(anchor.run_js("return !!document.querySelector('#recaptcha-anchor');"))
+            if not ready:
+                driver.sleep(1)
+                continue
+
+            anchor.click("#recaptcha-anchor")
+            driver.sleep(3)
+            return True
+        except Exception as exc:
+            last_error = str(exc)
+            driver.sleep(1)
+
+    log(f"Failed to click reCAPTCHA checkbox: {last_error or 'anchor was not ready in time.'}")
+    return False
 
 
 def switch_recaptcha_to_audio(driver: Driver) -> bool:
@@ -412,7 +560,11 @@ def solve_recaptcha_with_buster_once(driver: Driver) -> bool:
     if is_recaptcha_solved(driver):
         return True
 
-    if has_recaptcha_anchor_frame(driver):
+    ready_state = wait_for_recaptcha_ready_state(driver)
+    log(f"Detected reCAPTCHA ready state: {ready_state}")
+    save_status_screenshot(driver, f"recaptcha_ready_{ready_state}")
+
+    if ready_state == "anchor":
         if not click_recaptcha_checkbox(driver):
             return False
 
@@ -421,9 +573,9 @@ def solve_recaptcha_with_buster_once(driver: Driver) -> bool:
             log("reCAPTCHA solved by checkbox only.")
             return True
 
-    if has_recaptcha_challenge_frame(driver) or wait_for_recaptcha_frame(
-        driver, "iframe[src*='recaptcha/api2/bframe']", 10
-    ):
+        ready_state = wait_for_recaptcha_ready_state(driver, 10)
+
+    if ready_state == "challenge" or has_recaptcha_challenge_frame(driver):
         if is_visual_challenge_visible(driver) and not switch_recaptcha_to_audio(driver):
             log("Failed to switch visual challenge to audio mode.")
             return False
@@ -442,6 +594,7 @@ def solve_recaptcha_with_buster_once(driver: Driver) -> bool:
         log("Timed out waiting for Buster to solve reCAPTCHA.")
         return False
 
+    log("reCAPTCHA never reached an interactive anchor/challenge state.")
     return is_recaptcha_solved(driver)
 
 
@@ -804,6 +957,8 @@ def prepare_renew_recaptcha(driver: Driver, stage: str = "renew_retriggered") ->
 
     driver.sleep(4)
     save_status_screenshot(driver, stage)
+    interactive_state = wait_for_renew_interactive_state(driver)
+    save_status_screenshot(driver, f"{stage}_{interactive_state}")
     return True
 
 
@@ -902,7 +1057,10 @@ def g4free_renewal_task(driver: Driver, data):
         driver.sleep(4)
         save_status_screenshot(driver, "renew_after_click")
 
-        if has_recaptcha_anchor_frame(driver) or has_recaptcha_challenge_frame(driver):
+        renew_interactive_state = wait_for_renew_interactive_state(driver)
+        save_status_screenshot(driver, f"renew_interactive_{renew_interactive_state}")
+
+        if renew_interactive_state in {"anchor", "challenge"}:
             log("reCAPTCHA detected during renew, switching to audio mode and invoking Buster.")
             save_status_screenshot(driver, "renew_recaptcha_detected")
             if not solve_recaptcha_with_retries(
@@ -916,12 +1074,19 @@ def g4free_renewal_task(driver: Driver, data):
                     screenshot,
                 )
                 return
+        elif renew_interactive_state == "ad":
+            screenshot = save_status_screenshot(driver, "renew_ad_gate_timeout")
+            send_tg_message(
+                "<b>Gaming4Free renew failed</b>\nThe renew page stayed inside the ad gate and never reached an interactive reCAPTCHA state.",
+                screenshot,
+            )
+            return
         else:
             log("No reCAPTCHA detected after clicking 'Add 90 Minutes'.")
             save_status_screenshot(driver, "renew_no_recaptcha")
 
-        log("Waiting 120 seconds for the ad/renew cycle to finish.")
-        driver.sleep(120)
+        log(f"Waiting {RENEW_AD_PLAY_WAIT_SECONDS} seconds for the ad/renew cycle to finish.")
+        driver.sleep(RENEW_AD_PLAY_WAIT_SECONDS)
         save_status_screenshot(driver, "renew_wait_finished")
 
         log("Refreshing console page to verify the new remaining time.")
