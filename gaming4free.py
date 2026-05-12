@@ -872,16 +872,16 @@ def g4free_renewal_task(driver: Driver, data):
             )
             return
 
-    log("Panel login succeeded, continuing with the original panel flow.")
-    save_status_screenshot(driver, "panel_login_success")
+        log("Panel login succeeded, continuing with the original panel flow.")
+        save_status_screenshot(driver, "panel_login_success")
 
-    if is_server_list_page(driver):
-        save_status_screenshot(driver, "panel_server_list_page")
+        if is_server_list_page(driver):
+            save_status_screenshot(driver, "panel_server_list_page")
 
-    if not click_console_entry(driver):
-        screenshot = save_status_screenshot(driver, "console_entry_failed")
-        send_tg_message(
-            "<b>Gaming4Free panel flow failed</b>\nConsole entry was not found after panel login.",
+        if not click_console_entry(driver):
+            screenshot = save_status_screenshot(driver, "console_entry_failed")
+            send_tg_message(
+                "<b>Gaming4Free panel flow failed</b>\nConsole entry was not found after panel login.",
                 screenshot,
             )
             return
