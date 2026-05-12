@@ -647,10 +647,83 @@ def click_first_matching_link(driver: Driver, snippets: list[str], exact_match: 
         return False
 
 
+def is_server_list_page(driver: Driver) -> bool:
+    try:
+        current_url = driver.current_url.lower()
+    except Exception:
+        current_url = ""
+
+    if "/server/" in current_url:
+        return False
+
+    page_text = get_page_text(driver).lower()
+    if "server list" in page_text:
+        return True
+
+    try:
+        return bool(
+            driver.run_js(
+                """
+                return !!document.querySelector("a[href^='/server/']");
+                """
+            )
+        )
+    except Exception:
+        return False
+
+
+def open_server_from_server_list(driver: Driver) -> bool:
+    if not is_server_list_page(driver):
+        return True
+
+    log("Detected server list page, opening the claimed free server first.")
+    save_status_screenshot(driver, "server_list_detected")
+
+    js = """
+    const links = Array.from(document.querySelectorAll("a[href^='/server/']"));
+    if (!links.length) return false;
+
+    const scored = links.map((link) => {
+        const text = (link.innerText || link.textContent || "").replace(/\\s+/g, " ").trim().toLowerCase();
+        let score = 0;
+        if (text.includes("free")) score += 10;
+        if (text.includes("minecraft")) score += 3;
+        if (text.includes("server")) score += 2;
+        return { link, score, text };
+    });
+
+    scored.sort((a, b) => b.score - a.score);
+    const target = scored[0]?.link;
+    if (!target) return false;
+    target.removeAttribute("target");
+    target.click();
+    return true;
+    """
+
+    for attempt in range(1, 5):
+        try:
+            if driver.run_js(js):
+                driver.sleep(6)
+                save_status_screenshot(driver, f"server_list_opened_attempt_{attempt}")
+                return "/server/" in driver.current_url.lower() and "/console" not in driver.current_url.lower()
+        except Exception as exc:
+            log(f"Failed to click server row on attempt {attempt}: {exc}")
+
+        driver.run_js("window.scrollBy(0, 300);")
+        driver.sleep(2)
+        save_status_screenshot(driver, f"server_list_attempt_{attempt}_failed")
+
+    return "/server/" in driver.current_url.lower() and "/console" not in driver.current_url.lower()
+
+
 def click_console_entry(driver: Driver) -> bool:
     if "/console" in driver.current_url.lower():
         save_status_screenshot(driver, "console_already_open")
         return True
+
+    if is_server_list_page(driver) and not open_server_from_server_list(driver):
+        save_status_screenshot(driver, "server_list_open_failed")
+        return False
 
     for attempt in range(1, 5):
         if click_first_matching_link(driver, ["console"], exact_match=False):
@@ -799,13 +872,16 @@ def g4free_renewal_task(driver: Driver, data):
             )
             return
 
-        log("Panel login succeeded, continuing with the original panel flow.")
-        save_status_screenshot(driver, "panel_login_success")
+    log("Panel login succeeded, continuing with the original panel flow.")
+    save_status_screenshot(driver, "panel_login_success")
 
-        if not click_console_entry(driver):
-            screenshot = save_status_screenshot(driver, "console_entry_failed")
-            send_tg_message(
-                "<b>Gaming4Free panel flow failed</b>\nConsole entry was not found after panel login.",
+    if is_server_list_page(driver):
+        save_status_screenshot(driver, "panel_server_list_page")
+
+    if not click_console_entry(driver):
+        screenshot = save_status_screenshot(driver, "console_entry_failed")
+        send_tg_message(
+            "<b>Gaming4Free panel flow failed</b>\nConsole entry was not found after panel login.",
                 screenshot,
             )
             return
