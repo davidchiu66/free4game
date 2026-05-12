@@ -21,6 +21,7 @@ MAX_RECAPTCHA_RETRIES = 3
 RENEW_INTERACTIVE_WAIT_SECONDS = 45
 RENEW_AD_PLAY_WAIT_SECONDS = 120
 RECAPTCHA_CHALLENGE_WAIT_SECONDS = 25
+POST_AD_STATE_SETTLE_SECONDS = 6
 
 
 def log(message: str):
@@ -283,24 +284,105 @@ def wait_for_recaptcha_ready_state(driver: Driver, timeout_seconds: int = RECAPT
     return "none"
 
 
-def is_ad_gate_present(driver: Driver) -> bool:
+def get_ad_gate_state(driver: Driver) -> dict:
     try:
-        return bool(
-            driver.run_js(
-                r"""
-                const text = (document.body ? document.body.innerText : '').toLowerCase();
-                const markers = ['powered by adinplay', 'play now', 'world of tanks', 'adinplay'];
-                const hasMarker = markers.some((marker) => text.includes(marker));
-                const hasTimer = /\b\d{2}:\d{2}\s*\/\s*\d{2}:\d{2}\b/.test(text);
-                return hasMarker || hasTimer;
-                """
-            )
+        state = driver.run_js(
+            r"""
+            const text = (document.body ? document.body.innerText : '').toLowerCase();
+            const markers = ['powered by adinplay', 'play now', 'world of tanks', 'adinplay'];
+            const hasMarker = markers.some((marker) => text.includes(marker));
+            const timerMatch = text.match(/\b(\d{2}:\d{2})\s*\/\s*(\d{2}:\d{2})\b/);
+
+            function toSeconds(value) {
+                if (!value || !value.includes(':')) {
+                    return 0;
+                }
+                const parts = value.split(':').map((part) => parseInt(part, 10) || 0);
+                return (parts[0] * 60) + parts[1];
+            }
+
+            function isVisible(element) {
+                if (!element) {
+                    return false;
+                }
+                const rect = element.getBoundingClientRect();
+                const style = window.getComputedStyle(element);
+                return rect.width > 0 &&
+                    rect.height > 0 &&
+                    style.visibility !== 'hidden' &&
+                    style.display !== 'none' &&
+                    style.opacity !== '0';
+            }
+
+            function findCloseCandidate() {
+                const directSelectors = [
+                    "[aria-label*='close' i]",
+                    "[title*='close' i]",
+                    ".close",
+                    ".btn-close",
+                    "[class*='close']"
+                ];
+
+                for (const selector of directSelectors) {
+                    const element = document.querySelector(selector);
+                    if (isVisible(element)) {
+                        const rect = element.getBoundingClientRect();
+                        if (rect.width <= 120 && rect.height <= 120 && rect.top < 220) {
+                            return element;
+                        }
+                    }
+                }
+
+                const candidates = Array.from(document.querySelectorAll("button, a, div, span"));
+                for (const element of candidates) {
+                    const elementText = (element.innerText || element.textContent || '').trim().toLowerCase();
+                    if (!['x', 'close', 'skip'].includes(elementText)) {
+                        continue;
+                    }
+
+                    if (!isVisible(element)) {
+                        continue;
+                    }
+
+                    const rect = element.getBoundingClientRect();
+                    if (rect.width > 120 || rect.height > 120 || rect.top > 220) {
+                        continue;
+                    }
+
+                    return element;
+                }
+
+                return null;
+            }
+
+            const closeCandidate = findCloseCandidate();
+            const elapsedSeconds = timerMatch ? toSeconds(timerMatch[1]) : 0;
+            const totalSeconds = timerMatch ? toSeconds(timerMatch[2]) : 0;
+            const closeVisible = !!closeCandidate;
+            const closeReady = closeVisible && (!timerMatch || totalSeconds === 0 || elapsedSeconds >= Math.max(totalSeconds - 2, 1));
+            const present = hasMarker || !!timerMatch || closeVisible;
+
+            return {
+                present,
+                hasMarker,
+                timerText: timerMatch ? timerMatch[0] : '',
+                elapsedSeconds,
+                totalSeconds,
+                closeVisible,
+                closeReady,
+            };
+            """
         )
+        return state if isinstance(state, dict) else {}
     except Exception:
-        return False
+        return {}
 
 
-def close_ad_gate_if_possible(driver: Driver) -> bool:
+def is_ad_gate_present(driver: Driver) -> bool:
+    return bool(get_ad_gate_state(driver).get("present"))
+
+
+def _legacy_close_ad_gate_if_possible(driver: Driver) -> bool:
     try:
         return bool(
             driver.run_js(
@@ -348,7 +430,7 @@ def close_ad_gate_if_possible(driver: Driver) -> bool:
         return False
 
 
-def wait_for_renew_interactive_state(driver: Driver, timeout_seconds: int = RENEW_INTERACTIVE_WAIT_SECONDS) -> str:
+def _legacy_wait_for_renew_interactive_state(driver: Driver, timeout_seconds: int = RENEW_INTERACTIVE_WAIT_SECONDS) -> str:
     deadline = time.time() + timeout_seconds
     ad_seen = False
 
@@ -383,6 +465,177 @@ def wait_for_renew_interactive_state(driver: Driver, timeout_seconds: int = RENE
         return "anchor"
     if is_ad_gate_present(driver):
         return "ad"
+    return "none"
+
+
+def close_ad_gate_if_possible(driver: Driver, force: bool = False) -> bool:
+    try:
+        return bool(
+            driver.run_js(
+                """
+                const forceClose = arguments[0];
+                function isVisible(element) {
+                    if (!element) {
+                        return false;
+                    }
+                    const rect = element.getBoundingClientRect();
+                    const style = window.getComputedStyle(element);
+                    return rect.width > 0 &&
+                        rect.height > 0 &&
+                        style.visibility !== 'hidden' &&
+                        style.display !== 'none' &&
+                        style.opacity !== '0';
+                }
+
+                const text = (document.body ? document.body.innerText : '').toLowerCase();
+                const timerMatch = text.match(/\b(\d{2}:\d{2})\s*\/\s*(\d{2}:\d{2})\b/);
+                function toSeconds(value) {
+                    if (!value || !value.includes(':')) {
+                        return 0;
+                    }
+                    const parts = value.split(':').map((part) => parseInt(part, 10) || 0);
+                    return (parts[0] * 60) + parts[1];
+                }
+                const elapsedSeconds = timerMatch ? toSeconds(timerMatch[1]) : 0;
+                const totalSeconds = timerMatch ? toSeconds(timerMatch[2]) : 0;
+                const closeReady = !timerMatch || totalSeconds === 0 || elapsedSeconds >= Math.max(totalSeconds - 2, 1);
+
+                const directSelectors = [
+                    "[aria-label*='close' i]",
+                    "[title*='close' i]",
+                    ".close",
+                    ".btn-close",
+                    "[class*='close']"
+                ];
+                for (const selector of directSelectors) {
+                    const element = document.querySelector(selector);
+                    if (isVisible(element)) {
+                        const rect = element.getBoundingClientRect();
+                        if (rect.width > 120 || rect.height > 120 || rect.top > 220) {
+                            continue;
+                        }
+                        if (!forceClose && !closeReady) {
+                            continue;
+                        }
+                        element.click();
+                        return true;
+                    }
+                }
+
+                const candidates = Array.from(document.querySelectorAll("button, a, div, span"));
+                for (const element of candidates) {
+                    const text = (element.innerText || element.textContent || "").trim().toLowerCase();
+                    if (!["x", "close", "skip"].includes(text)) {
+                        continue;
+                    }
+                    if (!isVisible(element)) {
+                        continue;
+                    }
+
+                    const rect = element.getBoundingClientRect();
+                    if (rect.width > 120 || rect.height > 120 || rect.top > 220) {
+                        continue;
+                    }
+                    if (!forceClose && !closeReady) {
+                        continue;
+                    }
+
+                    element.click();
+                    return true;
+                }
+                return false;
+                """,
+                force,
+            )
+        )
+    except Exception:
+        return False
+
+
+def wait_for_ad_gate_to_clear(driver: Driver, timeout_seconds: int) -> str:
+    deadline = time.time() + timeout_seconds
+    last_logged_timer = ""
+    close_ready_logged = False
+
+    while time.time() < deadline:
+        state = get_ad_gate_state(driver)
+        if not state.get("present"):
+            return "gone"
+
+        timer_text = state.get("timerText", "")
+        if timer_text and timer_text != last_logged_timer:
+            log(f"Ad gate timer: {timer_text}")
+            last_logged_timer = timer_text
+
+        if state.get("closeReady") and not close_ready_logged:
+            log("Ad gate close button looks ready, attempting to close it.")
+            save_status_screenshot(driver, "renew_ad_gate_close_ready")
+            close_ready_logged = True
+
+        if close_ad_gate_if_possible(driver):
+            driver.sleep(2)
+            if not is_ad_gate_present(driver):
+                save_status_screenshot(driver, "renew_ad_gate_closed")
+                return "closed"
+
+        driver.sleep(2)
+
+    if close_ad_gate_if_possible(driver, force=True):
+        driver.sleep(2)
+        if not is_ad_gate_present(driver):
+            save_status_screenshot(driver, "renew_ad_gate_closed_force")
+            return "closed"
+
+    return "timeout"
+
+
+def wait_for_renew_interactive_state(driver: Driver, timeout_seconds: int = RENEW_INTERACTIVE_WAIT_SECONDS) -> str:
+    deadline = time.time() + timeout_seconds
+    ad_seen = False
+    ad_cleared_at = None
+
+    while time.time() < deadline:
+        if is_ad_gate_present(driver):
+            if not ad_seen:
+                log("Ad gate detected after renew click; waiting for it to finish or close.")
+                save_status_screenshot(driver, "renew_ad_gate_detected")
+            ad_seen = True
+            ad_cleared_at = None
+            remaining_seconds = max(1, int(deadline - time.time()))
+            ad_result = wait_for_ad_gate_to_clear(driver, min(remaining_seconds, 35))
+            if ad_result == "timeout":
+                continue
+            log(f"Ad gate cleared with result: {ad_result}")
+            save_status_screenshot(driver, "renew_ad_gate_cleared")
+            continue
+
+        if is_audio_challenge_visible(driver) or is_visual_challenge_visible(driver):
+            return "challenge"
+
+        if is_recaptcha_checkbox_ready(driver):
+            return "anchor"
+
+        if has_recaptcha_challenge_frame(driver) and not ad_seen:
+            return "challenge"
+
+        if ad_seen:
+            if ad_cleared_at is None:
+                ad_cleared_at = time.time()
+            elif time.time() - ad_cleared_at >= POST_AD_STATE_SETTLE_SECONDS:
+                log("Ad gate finished and no reCAPTCHA appeared afterward.")
+                save_status_screenshot(driver, "renew_post_ad_no_recaptcha")
+                return "ad_done"
+
+        driver.sleep(1)
+
+    if is_ad_gate_present(driver):
+        return "ad"
+    if is_audio_challenge_visible(driver) or is_visual_challenge_visible(driver):
+        return "challenge"
+    if is_recaptcha_checkbox_ready(driver):
+        return "anchor"
+    if has_recaptcha_challenge_frame(driver) and not ad_seen:
+        return "challenge"
     return "none"
 
 
@@ -1099,6 +1352,9 @@ def g4free_renewal_task(driver: Driver, data):
                 screenshot,
             )
             return
+        elif renew_interactive_state == "ad_done":
+            log("Renew flow only showed the ad gate; it finished without showing reCAPTCHA.")
+            save_status_screenshot(driver, "renew_ad_only_completed")
         else:
             log("No reCAPTCHA detected after clicking 'Add 90 Minutes'.")
             save_status_screenshot(driver, "renew_no_recaptcha")
