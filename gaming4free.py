@@ -920,8 +920,8 @@ def g4free_renewal_task(driver: Driver, data):
             log("No reCAPTCHA detected after clicking 'Add 90 Minutes'.")
             save_status_screenshot(driver, "renew_no_recaptcha")
 
-        log("Waiting 90 seconds for the ad/renew cycle to finish.")
-        driver.sleep(90)
+        log("Waiting 120 seconds for the ad/renew cycle to finish.")
+        driver.sleep(120)
         save_status_screenshot(driver, "renew_wait_finished")
 
         log("Refreshing console page to verify the new remaining time.")
