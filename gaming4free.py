@@ -57,6 +57,31 @@ def send_tg_message(text: str, photo_path: str | None = None):
         log(f"Telegram notification failed: {exc}")
 
 
+def build_success_message(time_before: str, time_after: str) -> str:
+    return (
+        "🟢 <b>G4Free py版本续期成功！</b>\n\n"
+        "时间已发生真实增长，Buster 破解与加时操作成功生效！\n"
+        f"⏱️ <b>操作前：</b><code>{time_before}</code>\n"
+        f"⏱️ <b>最新时长：</b><code>{time_after}</code>"
+    )
+
+
+def build_soft_fail_message(time_before: str, time_after: str) -> str:
+    return (
+        "🔴 <b>G4Free py版本假成功警告</b>\n\n"
+        "流程已经执行完成，但剩余时间没有明显增长，请结合截图确认是否真实续期成功。\n"
+        f"⏱️ <b>操作前：</b><code>{time_before}</code>\n"
+        f"⏱️ <b>操作后：</b><code>{time_after}</code>"
+    )
+
+
+def build_hard_fail_message(title: str, detail: str, extra_lines: list[str] | None = None) -> str:
+    lines = [f"🔴 <b>{title}</b>", "", detail]
+    if extra_lines:
+        lines.extend(extra_lines)
+    return "\n".join(lines)
+
+
 def normalize_stage_name(stage: str) -> str:
     normalized = re.sub(r"[^a-zA-Z0-9._-]+", "_", stage.strip().lower())
     return normalized.strip("_") or "status"
@@ -393,6 +418,7 @@ def get_ad_gate_state(driver: Driver) -> dict:
             const elapsedSeconds = timerMatch ? toSeconds(timerMatch[1]) : 0;
             const totalSeconds = timerMatch ? toSeconds(timerMatch[2]) : 0;
             const closeVisible = !!closeCandidate;
+            const playbackFinished = !!timerMatch && totalSeconds > 0 && elapsedSeconds >= totalSeconds;
             const closeReady = closeVisible && (!timerMatch || totalSeconds === 0 || elapsedSeconds >= Math.max(totalSeconds - 2, 1));
             const present = hasMarker || !!timerMatch || closeVisible;
 
@@ -404,6 +430,7 @@ def get_ad_gate_state(driver: Driver) -> dict:
                 totalSeconds,
                 closeVisible,
                 closeReady,
+                playbackFinished,
             };
             """
         )
@@ -593,6 +620,7 @@ def wait_for_ad_gate_to_clear(driver: Driver, timeout_seconds: int) -> str:
     deadline = time.time() + timeout_seconds
     last_logged_timer = ""
     close_ready_logged = False
+    playback_finished_logged = False
 
     while time.time() < deadline:
         state = get_ad_gate_state(driver)
@@ -603,6 +631,11 @@ def wait_for_ad_gate_to_clear(driver: Driver, timeout_seconds: int) -> str:
         if timer_text and timer_text != last_logged_timer:
             log(f"Ad gate timer: {timer_text}")
             last_logged_timer = timer_text
+
+        if state.get("playbackFinished") and not playback_finished_logged:
+            log("Ad gate playback reached its full duration.")
+            save_status_screenshot(driver, "renew_ad_gate_playback_finished")
+            playback_finished_logged = True
 
         if state.get("closeReady") and not close_ready_logged:
             log("Ad gate close button looks ready, attempting to close it.")
@@ -617,11 +650,19 @@ def wait_for_ad_gate_to_clear(driver: Driver, timeout_seconds: int) -> str:
 
         driver.sleep(2)
 
+    final_state = get_ad_gate_state(driver)
     if close_ad_gate_if_possible(driver, force=True):
         driver.sleep(2)
         if not is_ad_gate_present(driver):
             save_status_screenshot(driver, "renew_ad_gate_closed_force")
             return "closed"
+
+    if final_state.get("playbackFinished") or (
+        final_state.get("closeVisible") and final_state.get("closeReady")
+    ):
+        log("Ad gate reached a finished/closable state but remained visible.")
+        save_status_screenshot(driver, "renew_ad_gate_finished_but_visible")
+        return "finished"
 
     return "timeout"
 
@@ -642,6 +683,9 @@ def wait_for_renew_interactive_state(driver: Driver, timeout_seconds: int = RENE
             ad_result = wait_for_ad_gate_to_clear(driver, min(remaining_seconds, 35))
             if ad_result == "timeout":
                 continue
+            if ad_result == "finished":
+                log("Ad gate playback finished; continuing without treating it as a hard failure.")
+                save_status_screenshot(driver, "renew_ad_gate_finished")
             log(f"Ad gate cleared with result: {ad_result}")
             save_status_screenshot(driver, "renew_ad_gate_cleared")
             continue
@@ -1360,7 +1404,10 @@ def g4free_renewal_task(driver: Driver, data):
         if not ensure_panel_logged_in(driver):
             screenshot = save_status_screenshot(driver, "panel_login_failed_final")
             send_tg_message(
-                "<b>Gaming4Free panel login failed</b>\nCould not log in with panel cookie or account/password.",
+                build_hard_fail_message(
+                    "G4Free py版本登录失败",
+                    "无法通过 Panel Cookie 或账号密码进入面板，请结合截图检查登录态与验证码流程。",
+                ),
                 screenshot,
             )
             return
@@ -1374,7 +1421,10 @@ def g4free_renewal_task(driver: Driver, data):
         if not click_console_entry(driver):
             screenshot = save_status_screenshot(driver, "console_entry_failed")
             send_tg_message(
-                "<b>Gaming4Free panel flow failed</b>\nConsole entry was not found after panel login.",
+                build_hard_fail_message(
+                    "G4Free py版本流程异常",
+                    "登录后未能找到 Console 入口，请结合截图检查当前是否停留在 Server List 或其他页面。",
+                ),
                 screenshot,
             )
             return
@@ -1387,7 +1437,11 @@ def g4free_renewal_task(driver: Driver, data):
         if not click_add_90_minutes(driver):
             screenshot = save_status_screenshot(driver, "renew_button_not_found")
             send_tg_message(
-                "<b>Gaming4Free renew failed</b>\nThe 'Add 90 Minutes' button was not found.",
+                build_hard_fail_message(
+                    "G4Free py版本续期异常",
+                    "未找到 Add 90 Minutes 按钮，请结合截图核实页面结构是否发生变化。",
+                    [f"⏱️ <b>操作前：</b><code>{time_before}</code>"],
+                ),
                 screenshot,
             )
             return
@@ -1408,14 +1462,22 @@ def g4free_renewal_task(driver: Driver, data):
             ):
                 screenshot = save_status_screenshot(driver, "renew_recaptcha_failed")
                 send_tg_message(
-                    "<b>Gaming4Free renew failed</b>\nreCAPTCHA was detected but audio-mode solving did not succeed.",
+                    build_hard_fail_message(
+                        "G4Free py版本续期失败",
+                        "检测到了 reCAPTCHA，但语音模式+Buster 流程未成功完成，请结合截图检查验证码页面。",
+                        [f"⏱️ <b>操作前：</b><code>{time_before}</code>"],
+                    ),
                     screenshot,
                 )
                 return
         elif renew_interactive_state == "ad":
             screenshot = save_status_screenshot(driver, "renew_ad_gate_timeout")
             send_tg_message(
-                "<b>Gaming4Free renew failed</b>\nThe renew page stayed inside the ad gate and never reached an interactive reCAPTCHA state.",
+                build_hard_fail_message(
+                    "G4Free py版本广告阶段异常",
+                    "广告页长时间未正常结束，也没有进入可交互的验证码阶段，请结合截图检查广告浮层与关闭按钮状态。",
+                    [f"⏱️ <b>操作前：</b><code>{time_before}</code>"],
+                ),
                 screenshot,
             )
             return
@@ -1445,24 +1507,22 @@ def g4free_renewal_task(driver: Driver, data):
 
         if minutes_after > minutes_before + 3:
             send_tg_message(
-                "<b>Gaming4Free renew succeeded</b>\n\n"
-                f"<b>Before:</b> <code>{time_before}</code>\n"
-                f"<b>After:</b> <code>{time_after}</code>",
+                build_success_message(time_before, time_after),
                 screenshot,
             )
         else:
             send_tg_message(
-                "<b>Gaming4Free renew may have failed</b>\n\n"
-                "The renew flow completed, but the remaining time did not increase clearly.\n"
-                f"<b>Before:</b> <code>{time_before}</code>\n"
-                f"<b>After:</b> <code>{time_after}</code>",
+                build_soft_fail_message(time_before, time_after),
                 screenshot,
             )
 
     except Exception as exc:
         screenshot = save_status_screenshot(driver, "script_exception")
         send_tg_message(
-            f"<b>Gaming4Free script error</b>\n<code>{str(exc)}</code>",
+            build_hard_fail_message(
+                "G4Free py版本脚本报错",
+                f"<code>{str(exc)}</code>",
+            ),
             screenshot,
         )
 
